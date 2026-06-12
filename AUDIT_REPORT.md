@@ -2,10 +2,10 @@
 
 审计日期：2026-06-13（Asia/Shanghai）
 
-审计范围：当前工作区 `D:\k12 helper codex` 的源码、文档、依赖声明、运行时数据文件和可见目录状态。未修改业务代码，仅生成本报告。
+审计范围：审计时工作区 `D:\k12 helper codex` 的源码、文档、依赖声明、运行时数据文件和可见目录状态。审计过程未修改业务代码，仅生成本报告。
 
 审计限制：
-- 当前目录不是 git 仓库，`git status` 报 `fatal: not a git repository`，且递归未发现 `.git` 目录。用户确认当前项目尚未初始化 git，因此当前项目内没有可审计的 git 历史；未来初始化 git 前仍需先补 `.gitignore`。
+- 审计时当前目录不是 git 仓库，`git status` 报 `fatal: not a git repository`，且递归未发现 `.git` 目录。用户确认当时项目尚未初始化 git，因此当时没有可审计的 git 历史。
 - `requirements.txt` 未锁定版本，依赖漏洞结论只能基于“当前 Python 环境中已安装的直接依赖版本”作为参考。
 - `python -m pip_audit` 未安装；`uvx pip-audit -r requirements.txt` 在 124 秒超时。已补充使用 OSV.dev API 查询当前环境版本。
 - 未启动 Streamlit 应用做动态渗透测试；以下结论以静态审计和只读命令结果为准。
@@ -22,6 +22,11 @@
 - 用户确认 Chroma 只使用本地 `PersistentClient`，数据在本地 `chroma_db/` 文件夹，程序直接读写；没有以 HTTP server 方式运行，也不开任何网络端口。因此 Chroma CVE 当前没有对应远程 HTTP 攻击面，但仍应作为依赖治理风险处理。
 - 当前学习记录是模拟数据，不是真实学生数据；但如后续接入真实学生，隐私和数据保留风险需要重新升档处理。
 - API key 已写入系统环境变量，使用手册中的 `.bat` 明文写 key 示例与当前做法冲突，属于多余且不推荐的文档内容。
+
+发布状态更新（2026-06-13）：
+- 审计后已新增 `.gitignore`，过滤 `learning_records.db`、`chroma_db/`、`__pycache__/`、`.env*`、真实启动脚本和凭证类文件。
+- 审计后已初始化 git，提交初始项目快照，并推送到私有仓库 `dosheda/k12` 的 `main` 分支。
+- 审计后已创建初始 GitHub Release `v0.1.0`。
 
 ## ① 项目概览
 
