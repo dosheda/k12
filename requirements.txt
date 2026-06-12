@@ -1,0 +1,8 @@
+openai
+pytesseract
+Pillow
+langchain
+langchain-chroma
+langchain-community
+chromadb
+sentence-transformers

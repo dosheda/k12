@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>K12 古诗词讲解助手 — 使用手册</title>
+<style>
+  /* ============================================================
+     整体风格：温暖、干净，适合家长和小学生阅读
+     ============================================================ */
+  :root {
+    --bg: #fefefe;
+    --text: #2c2c2c;
+    --muted: #6b6b6b;
+    --accent: #c0392b;
+    --accent-soft: #e74c3c;
+    --card: #fafaf7;
+    --border: #e8e4dc;
+    --tag-bg: #fef5e7;
+    --tag-text: #b45309;
+    --code-bg: #f4f1ea;
+    --green: #27ae60;
+    --blue: #2980b9;
+    --purple: #8e44ad;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    font-size: 16px;
+  }
+
+  /* ---- 顶部大标题 ---- */
+  .hero {
+    background: linear-gradient(135deg, #2c1810 0%, #5c2e1a 40%, #8b4513 100%);
+    color: #fff;
+    padding: 60px 24px 50px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::after {
+    content: "";
+    position: absolute;
+    bottom: -30px; left: -5%; right: -5%;
+    height: 60px;
+    background: var(--bg);
+    border-radius: 50% 50% 0 0;
+  }
+  .hero h1 {
+    font-size: 2.6em;
+    font-weight: 700;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+  .hero .subtitle {
+    font-size: 1.1em;
+    opacity: .85;
+    font-weight: 300;
+  }
+  .hero .badge-row {
+    margin-top: 20px;
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .hero .badge {
+    background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.25);
+    border-radius: 20px;
+    padding: 5px 18px;
+    font-size: .9em;
+  }
+
+  /* ---- 主体容器 ---- */
+  .container {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 0 24px 80px;
+  }
+
+  /* ---- 目录 ---- */
+  .toc {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin: 36px 0 40px;
+  }
+  .toc h2 { font-size: 1.2em; margin-bottom: 14px; color: var(--accent); }
+  .toc ol { padding-left: 22px; }
+  .toc li { margin: 6px 0; }
+  .toc a { color: var(--blue); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  /* ---- 章节 ---- */
+  section { margin: 48px 0; }
+  h2 {
+    font-size: 1.7em;
+    color: var(--accent);
+    border-bottom: 3px solid var(--accent-soft);
+    padding-bottom: 8px;
+    margin-bottom: 22px;
+  }
+  h3 {
+    font-size: 1.25em;
+    color: #3d2b1a;
+    margin: 28px 0 12px;
+  }
+  h4 {
+    font-size: 1.05em;
+    color: #5c3d2e;
+    margin: 18px 0 8px;
+  }
+
+  p { margin: 10px 0; }
+  strong { color: #3d2b1a; }
+
+  /* ---- 卡片 ---- */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 26px;
+    margin: 16px 0;
+  }
+  .card.accent { border-left: 4px solid var(--accent-soft); }
+  .card.green  { border-left: 4px solid var(--green); }
+  .card.blue   { border-left: 4px solid var(--blue); }
+  .card.purple { border-left: 4px solid var(--purple); }
+
+  /* ---- 标签 ---- */
+  .tag {
+    display: inline-block;
+    background: var(--tag-bg);
+    color: var(--tag-text);
+    border-radius: 6px;
+    padding: 2px 10px;
+    font-size: .9em;
+    margin: 2px 4px;
+  }
+
+  /* ---- 代码块 ---- */
+  code {
+    background: var(--code-bg);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+    font-size: .92em;
+  }
+  pre {
+    background: #2c2c2c;
+    color: #e8e8e8;
+    border-radius: 8px;
+    padding: 18px 22px;
+    overflow-x: auto;
+    font-size: .9em;
+    line-height: 1.6;
+    margin: 14px 0;
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+
+  /* ---- 列表 ---- */
+  ul, ol { padding-left: 24px; }
+  li { margin: 5px 0; }
+
+  /* ---- 步骤编号 ---- */
+  .step {
+    display: flex;
+    gap: 16px;
+    margin: 20px 0;
+    align-items: flex-start;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 36px; height: 36px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.05em;
+    margin-top: 2px;
+  }
+
+  /* ---- 表格 ---- */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: .95em;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    text-align: left;
+  }
+  th {
+    background: #f5f2ec;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  tr:nth-child(even) td { background: #fdfdfb; }
+
+  /* ---- 提示框 ---- */
+  .tip {
+    background: #eaf7ea;
+    border: 1px solid #b7e4b7;
+    border-radius: 8px;
+    padding: 14px 20px;
+    margin: 16px 0;
+    color: #1e6b1e;
+  }
+  .warn {
+    background: #fff8e8;
+    border: 1px solid #f0d78c;
+    border-radius: 8px;
+    padding: 14px 20px;
+    margin: 16px 0;
+    color: #8a6d14;
+  }
+  .info {
+    background: #e8f2fb;
+    border: 1px solid #a8c8e8;
+    border-radius: 8px;
+    padding: 14px 20px;
+    margin: 16px 0;
+    color: #1a5276;
+  }
+
+  /* ---- 架构图 ---- */
+  .arch-diagram {
+    text-align: center;
+    margin: 24px 0;
+    font-size: .95em;
+  }
+  .arch-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    margin: 8px 0;
+  }
+  .arch-box {
+    border: 2px solid var(--accent);
+    background: #fef9f7;
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin: 4px;
+    font-weight: 600;
+    min-width: 140px;
+  }
+  .arch-arrow {
+    font-size: 1.4em;
+    color: var(--accent);
+    margin: 0 6px;
+  }
+  .arch-box.db {
+    border-color: var(--blue);
+    background: #f4f8fc;
+  }
+  .arch-box.ai {
+    border-color: var(--purple);
+    background: #faf6fd;
+  }
+
+  /* ---- 页脚 ---- */
+  footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: .85em;
+    margin-top: 60px;
+    padding: 20px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ---- 响应式 ---- */
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 1.8em; }
+    .container { padding: 0 16px 40px; }
+    table { font-size: .8em; }
+    th, td { padding: 6px 8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     顶部
+     ============================================================ -->
+<header class="hero">
+  <h1>📖 K12 古诗词讲解助手</h1>
+  <p class="subtitle">一位住在电脑里的 AI 语文老师，陪孩子读懂古诗</p>
+  <div class="badge-row">
+    <span class="badge">🖥️ 网页版</span>
+    <span class="badge">📚 80 首古诗</span>
+    <span class="badge">🗣️ 语音朗读</span>
+    <span class="badge">📊 学情分析</span>
+  </div>
+</header>
+
+<div class="container">
+
+<!-- ============================================================
+     目录
+     ============================================================ -->
+<nav class="toc">
+  <h2>📑 目录</h2>
+  <ol>
+    <li><a href="#what-is">这是什么？</a></li>
+    <li><a href="#start">怎么启动？</a></li>
+    <li><a href="#interface">界面长什么样？</a></li>
+    <li><a href="#features">功能介绍</a></li>
+    <li><a href="#tech">技术栈和实现原理</a></li>
+    <li><a href="#faq">常见问题</a></li>
+  </ol>
+</nav>
+
+
+<!-- ============================================================
+     1. 这是什么
+     ============================================================ -->
+<section id="what-is">
+  <h2>1. 这是什么？</h2>
+
+  <p><strong>K12 古诗词讲解助手</strong>是一个网页版 AI 工具，专门帮助小学生和初中生学习古诗。</p>
+
+  <p>你可以把它想象成一位住在电脑里的语文家教老师——我们叫她 <strong>「小K老师」</strong>。</p>
+
+  <div class="card accent">
+    <h4>🎯 核心思路</h4>
+    <p>孩子问一个问题（比如「有没有描写春天的诗？」），小K老师从知识库里<strong>翻出最相关的几首诗</strong>，然后<strong>用 AI 针对这些诗进行讲解</strong>——而不是凭空编造。这就叫 <strong>RAG（检索增强生成）</strong>。</p>
+    <p style="margin-top:8px;">简单说：<strong>AI 只能讲知识库里有的诗，不会瞎编。</strong></p>
+  </div>
+
+  <h3>知识库里有什么？</h3>
+  <p>收录了从汉代到清代的 <strong>80 首经典古诗词</strong>，涵盖小学到初中常见的必读篇目。每首诗都包含：</p>
+  <ul>
+    <li><strong>原文</strong> — 诗的完整文字</li>
+    <li><strong>赏析</strong> — 这首诗好在哪里、用了什么手法</li>
+    <li><strong>四维标签</strong> — 题材类型、表达情感、表现手法、关键意象（共 4 个维度，方便精准检索）</li>
+  </ul>
+</section>
+
+
+<!-- ============================================================
+     2. 怎么启动
+     ============================================================ -->
+<section id="start">
+  <h2>2. 怎么启动？</h2>
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div>
+      <h4>打开终端（PowerShell）</h4>
+      <p>按键盘上的 <code>Win + R</code>，输入 <code>powershell</code>，回车。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">2</div>
+    <div>
+      <h4>设置 DeepSeek API Key（仅第一次需要）</h4>
+      <p>在终端里粘贴下面这行（把 <code>sk-你的key</code> 换成你自己的）：</p>
+      <pre><code>$env:DEEPSEEK_API_KEY = "sk-你的key"</code></pre>
+      <div class="info">💡 这个 Key 去哪里弄？去 <a href="https://platform.deepseek.com" target="_blank">DeepSeek 开放平台</a> 注册一个账号，在「API Keys」页面创建一个就有了。</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">3</div>
+    <div>
+      <h4>启动程序</h4>
+      <p>在终端里输入下面这行命令，回车：</p>
+      <pre><code>python -m streamlit run "D:\k12 helper\app.py"</code></pre>
+      <p>稍等几秒（首次启动要加载模型），终端里出现一行地址后就成功了。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">4</div>
+    <div>
+      <h4>打开浏览器</h4>
+      <p>在浏览器地址栏输入：</p>
+      <pre><code>http://localhost:8501</code></pre>
+      <p>看到页面就可以开始用了！🎉</p>
+    </div>
+  </div>
+
+  <div class="warn">
+    <strong>⚠️ 注意：</strong>终端（PowerShell 窗口）不能关掉，关掉程序就停了。不用的时候可以按 <code>Ctrl + C</code> 退出。
+  </div>
+
+  <div class="tip">
+    <strong>💡 小技巧：</strong>如果觉得每次都要手打命令太麻烦，可以在 <code>D:\k12 helper\</code> 文件夹里新建一个文本文件，改名为 <code>启动.bat</code>，内容写：
+    <pre><code>@echo off
+set DEEPSEEK_API_KEY=sk-你的key
+python -m streamlit run "D:\k12 helper\app.py"
+pause</code></pre>
+    以后双击这个 <code>启动.bat</code> 就能一键启动了。
+  </div>
+</section>
+
+
+<!-- ============================================================
+     3. 界面
+     ============================================================ -->
+<section id="interface">
+  <h2>3. 界面长什么样？</h2>
+
+  <p>打开网页后，你会看到<strong>左右两栏</strong>布局：</p>
+
+  <h3>📱 左侧：侧边栏（工具栏）</h3>
+  <table>
+    <tr>
+      <th>区域</th>
+      <th>内容</th>
+    </tr>
+    <tr>
+      <td>🛠️ 工具</td>
+      <td>显示当前对话轮数；「🆕 开始新对话」按钮可以清空聊天记录重新开始</td>
+    </tr>
+    <tr>
+      <td>📈 学习概览</td>
+      <td>显示孩子一共问了多少次、接触了多少首诗、最常关注哪些主题</td>
+    </tr>
+    <tr>
+      <td>📊 生成学情报告</td>
+      <td>点击后 AI 分析孩子的学习行为，生成一份给家长看的分析报告</td>
+    </tr>
+    <tr>
+      <td>💡 试试这些</td>
+      <td>一些推荐提问，供参考</td>
+    </tr>
+  </table>
+
+  <h3>📱 右侧：主聊天区</h3>
+  <table>
+    <tr>
+      <th>区域</th>
+      <th>内容</th>
+    </tr>
+    <tr>
+      <td>标题行</td>
+      <td>「📖K12 古诗词讲解助手」和欢迎语</td>
+    </tr>
+    <tr>
+      <td>学情报告区</td>
+      <td>点击生成报告后，报告会出现在这里（可以折叠、可以关闭）</td>
+    </tr>
+    <tr>
+      <td>对话历史</td>
+      <td>所有之前的问答，按聊天气泡展示（孩子的问题靠右，老师的回答靠左）</td>
+    </tr>
+    <tr>
+      <td>朗读按钮</td>
+      <td>每条老师的回答下面都有「🔊 朗读」和「⏹ 停止」按钮，点一下就能听</td>
+    </tr>
+    <tr>
+      <td>输入框</td>
+      <td>固定在页面最底部，在这里打字提问，回车发送</td>
+    </tr>
+  </table>
+</section>
+
+
+<!-- ============================================================
+     4. 功能介绍
+     ============================================================ -->
+<section id="features">
+  <h2>4. 功能介绍</h2>
+
+  <h3>🧠 功能一：智能古诗讲解（核心功能）</h3>
+  <p>在底部输入框输入问题，按下回车，小K老师就会回答。每次回答都包括：</p>
+  <ul>
+    <li><strong>【原文】</strong> — 诗的标题、作者、完整原文</li>
+    <li><strong>【这首诗讲了什么】</strong> — 用孩子能听懂的话概括内容，营造画面感</li>
+    <li><strong>【作者想表达什么】</strong> — 分析诗人的情感和写作动机</li>
+    <li><strong>【写得好的地方】</strong> — 讲解这首诗的妙处（基于知识库中的赏析）</li>
+    <li><strong>【小知识】</strong> — 和诗或诗人有关的趣味小故事（可选）</li>
+  </ul>
+
+  <div class="tip">
+    <strong>试试这样问：</strong>
+    <ul>
+      <li>和友情有关的诗有哪些？</li>
+      <li>望庐山瀑布好在哪里？</li>
+      <li>有没有描写春天的诗？</li>
+      <li>李白写过哪些写月亮的诗？</li>
+      <li>再讲一首（配合多轮对话使用）</li>
+    </ul>
+  </div>
+
+  <h3>🔄 功能二：多轮对话</h3>
+  <p>小K老师能记住前面聊过的内容。比如：</p>
+  <ol>
+    <li>先问：「望庐山瀑布好在哪里？」→ 小K老师讲解</li>
+    <li>再问：「<strong>它的作者是谁？</strong>」→ 小K老师知道「它」指的是上一首</li>
+    <li>再问：「<strong>再讲一首</strong>」→ 小K老师从上次的检索结果里再挑一首</li>
+  </ol>
+  <p>最多保留 <strong>5 轮</strong>对话，超出后自动丢弃最早的记录。</p>
+
+  <h3>🗣️ 功能三：语音朗读</h3>
+  <p>每条老师回答的下面都有两个按钮：</p>
+  <ul>
+    <li><strong>🔊 朗读</strong> — 用浏览器自带的语音引擎把回答念出来（中文发音，稍慢语速）</li>
+    <li><strong>⏹ 停止</strong> — 随时停止朗读</li>
+  </ul>
+  <div class="info">
+    💡 语音朗读用的是浏览器内置的 TTS（文字转语音）功能，<strong>不需要任何 API Key，完全免费</strong>。所有现代浏览器（Chrome、Edge、Firefox、Safari）都支持。
+  </div>
+
+  <h3>📊 功能四：学情分析</h3>
+  <p>这是新增的智能功能，帮助家长了解孩子的学习情况。</p>
+
+  <h4>自动记录</h4>
+  <p>每次孩子提问时，系统会自动记录：</p>
+  <ul>
+    <li>问了什么问题</li>
+    <li>检索到了哪些诗</li>
+    <li>这些诗涉及哪些主题标签（如思乡、写景、送别……）</li>
+    <li>提问的时间</li>
+  </ul>
+  <p>数据存在本地 SQLite 数据库里，<strong>关掉浏览器下次打开还在</strong>。</p>
+
+  <h4>实时统计</h4>
+  <p>左侧边栏「📈 学习概览」实时显示：总提问次数、接触了多少首不同的诗、最常关注的主题标签。</p>
+
+  <h4>生成学情报告</h4>
+  <p>点击侧边栏「📊 生成学情报告」按钮，AI 会分析孩子的学习数据，生成一份给家长看的分板报告，包含 5 个板块：</p>
+  <table>
+    <tr><th>板块</th><th>内容</th></tr>
+    <tr><td>📊 学习概览</td><td>提问次数、接触诗数</td></tr>
+    <tr><td>🔍 兴趣分析</td><td>孩子对哪些主题最感兴趣</td></tr>
+    <tr><td>⚖️ 均衡性评估</td><td>接触面是否均衡、缺少哪些类型</td></tr>
+    <tr><td>💡 拓展建议</td><td>推荐还没接触过的诗歌类型</td></tr>
+    <tr><td>🌟 学习寄语</td><td>温暖的鼓励和后续学习方向</td></tr>
+  </table>
+
+  <div class="tip">
+    <strong>💡 数据不足时的处理：</strong>如果只问了 1-2 个问题，系统不会调用 AI，而是直接提示「学习记录还比较少，多用一会儿就能生成更准确的分析」——省 API 费用。
+  </div>
+</section>
+
+
+<!-- ============================================================
+     5. 技术栈
+     ============================================================ -->
+<section id="tech">
+  <h2>5. 技术栈和实现原理</h2>
+
+  <p>这部分给想了解技术细节的读者看。完全不懂也没关系，跳过就好。</p>
+
+  <h3>🧱 技术组件一览</h3>
+  <table>
+    <tr><th>组件</th><th>用的什么</th><th>干嘛的</th></tr>
+    <tr><td>AI 大模型</td><td><span class="tag">DeepSeek V4 Pro</span></td><td>生成古诗讲解、学情报告</td></tr>
+    <tr><td>向量数据库</td><td><span class="tag">ChromaDB 1.5</span></td><td>存储 80 首诗的向量表示，本地运行</td></tr>
+    <tr><td>Embedding 模型</td><td><span class="tag">BAAI/bge-small-zh-v1.5</span></td><td>把中文问题变成数学向量（语义检索）</td></tr>
+    <tr><td>AI 调用方式</td><td><span class="tag">OpenAI SDK</span></td><td>兼容 DeepSeek API 格式</td></tr>
+    <tr><td>网页框架</td><td><span class="tag">Streamlit 1.58</span></td><td>把 Python 代码变成网页界面</td></tr>
+    <tr><td>学习记录</td><td><span class="tag">SQLite</span></td><td>存学习行为，跨会话累积</td></tr>
+    <tr><td>语音朗读</td><td><span class="tag">Web Speech API</span></td><td>浏览器内置 TTS，免费无需 Key</td></tr>
+    <tr><td>关键词分词</td><td><span class="tag">n-gram</span></td><td>零依赖中文分词，不用 jieba</td></tr>
+  </table>
+
+  <h3>🏗️ 系统架构</h3>
+  <p>整个系统分 <strong>离线建库</strong> 和 <strong>在线问答</strong> 两大部分：</p>
+
+  <h4>离线建库（一次性，已经跑好了）</h4>
+  <div class="arch-diagram">
+    <div class="arch-row">
+      <div class="arch-box">80 首古诗<br>（文本文件）</div>
+      <span class="arch-arrow">→</span>
+      <div class="arch-box">bge 向量模型<br>（转成向量）</div>
+      <span class="arch-arrow">→</span>
+      <div class="arch-box db">ChromaDB<br>向量库</div>
+    </div>
+    <div class="arch-row" style="margin-top:12px;">
+      <div class="arch-box">DeepSeek<br>(批量打标签)</div>
+      <span class="arch-arrow">→</span>
+      <div class="arch-box db">写入<br>Chroma metadata</div>
+    </div>
+    <p style="color:var(--muted); margin-top:8px; font-size:.9em;">每首诗被转成一串 384 维的数学向量（语义指纹），存进 Chroma 数据库中。<br>同时每首诗被打上 4 个维度的主题标签。</p>
+  </div>
+
+  <h4>在线问答（每次提问都跑一遍）</h4>
+  <div class="arch-diagram">
+    <div class="arch-row">
+      <div class="arch-box">孩子提问</div>
+      <span class="arch-arrow">→</span>
+      <div class="arch-box" style="border-style:dashed;">两路并行<br>混合检索</div>
+      <span class="arch-arrow">→</span>
+      <div class="arch-box db">Top 8 首</div>
+      <span class="arch-arrow">→</span>
+      <div class="arch-box ai">DeepSeek<br>生成讲解</div>
+      <span class="arch-arrow">→</span>
+      <div class="arch-box">返回答案</div>
+    </div>
+    <p style="color:var(--muted); margin-top:8px; font-size:.9em;">
+      同时 → 📝 SQLite 记录学习行为（供学情分析使用）<br>
+      同时 → 🗣️ 浏览器 TTS 朗读按钮渲染
+    </p>
+  </div>
+
+  <h3>🔍 混合检索是怎么工作的？</h3>
+  <p>这是整个系统最核心的设计——<strong>两路检索同时跑，结果合并</strong>：</p>
+
+  <div class="card blue">
+    <h4>第一路：语义向量检索（传统的 RAG 做法）</h4>
+    <ol>
+      <li>把孩子的问题（如「有没有描写春天的诗」）用 bge 模型转成一个 384 维的数学向量</li>
+      <li>拿这个向量去 Chroma 里找最相似的 15 首诗（按向量距离排序）</li>
+      <li>优点：能理解近义词，搜「春天」也能找到写「春晓」的诗</li>
+    </ol>
+  </div>
+
+  <div class="card green">
+    <h4>第二路：关键词 / 标签匹配（新增的第二路）</h4>
+    <ol>
+      <li>把孩子的问题拆成 2字/3字/4字 n-gram（如「描写」「春天」「描写春天」）</li>
+      <li>每个 n-gram 去每首诗的<strong>全文 + 标签</strong>里做子串匹配</li>
+      <li>命中的关键词越长，加分越多（4字词 &gt; 3字词 &gt; 2字词）</li>
+      <li>标签命中（如「写景、春天、生机」）直接拉高这首诗的排名</li>
+    </ol>
+  </div>
+
+  <div class="card accent">
+    <h4>合并规则</h4>
+    <ul>
+      <li>语义路径的得分：1.0 − 归一化距离（0~1 之间）</li>
+      <li>关键词路径的得分：归一化匹配分 <strong>× 2.0</strong>（标签命中加权更高）</li>
+      <li>同一首诗两路都命中 → 得分叠加（排名飙升）</li>
+      <li>只在关键词路命中的诗也收进来（不丢掉）</li>
+      <li>最终按得分从高到低排序，取 <strong>前 8 首</strong> 交给 DeepSeek</li>
+    </ul>
+  </div>
+
+  <p>为什么要做混合检索？因为<strong>纯向量检索有时候搜不准</strong>——比如问「有没有写友情的诗」，向量检索可能搜到一些聊天内容相关的诗，但标签里明确有「友情、送别」的诗反而没排到前面。加上标签匹配后，这类问题就准多了。</p>
+
+  <h3>🏷️ 标签体系</h3>
+  <p>每首诗都有 4 个维度的标签（由 DeepSeek 批量生成 + 人工审核）：</p>
+  <table>
+    <tr><th>维度</th><th>示例标签</th><th>说明</th></tr>
+    <tr><td>题材类型</td><td><span class="tag">写景诗</span> <span class="tag">送别诗</span> <span class="tag">边塞诗</span> <span class="tag">咏物诗</span></td><td>这首诗属于什么类型</td></tr>
+    <tr><td>表达情感</td><td><span class="tag">思乡</span> <span class="tag">爱国</span> <span class="tag">孤独</span> <span class="tag">喜悦</span></td><td>诗人在表达什么情感</td></tr>
+    <tr><td>表现手法</td><td><span class="tag">比喻</span> <span class="tag">拟人</span> <span class="tag">借景抒情</span> <span class="tag">托物言志</span></td><td>用了什么写作技巧</td></tr>
+    <tr><td>关键意象</td><td><span class="tag">月亮</span> <span class="tag">柳树</span> <span class="tag">江水</span> <span class="tag">青山</span></td><td>诗中出现了哪些重要意象</td></tr>
+  </table>
+
+  <h3>📁 项目文件说明</h3>
+  <table>
+    <tr><th>文件</th><th>作用</th></tr>
+    <tr><td><code>app.py</code></td><td>Streamlit 网页主程序（启动的就是这个）</td></tr>
+    <tr><td><code>rag_chat.py</code></td><td>命令行版问答（功能一样，没网页界面）</td></tr>
+    <tr><td><code>learning_db.py</code></td><td>学习行为记录模块（SQLite 读写）</td></tr>
+    <tr><td><code>build_rag_db.py</code></td><td>建 Chroma 向量库（只跑一次）</td></tr>
+    <tr><td><code>tag_poems.py</code></td><td>用 DeepSeek 给 80 首诗打标签</td></tr>
+    <tr><td><code>update_chroma_tags.py</code></td><td>把标签写进 Chroma metadata</td></tr>
+    <tr><td><code>古诗词1-80_整理版.txt</code></td><td>80 首诗全文（含赏析）</td></tr>
+    <tr><td><code>诗名-标签对照表.txt</code></td><td>80 首诗的完整标签参考</td></tr>
+    <tr><td><code>chroma_db/</code></td><td>Chroma 向量库文件夹（不要手动删改）</td></tr>
+    <tr><td><code>learning_records.db</code></td><td>学习记录数据库（自动生成）</td></tr>
+  </table>
+</section>
+
+
+<!-- ============================================================
+     6. 常见问题
+     ============================================================ -->
+<section id="faq">
+  <h2>6. 常见问题</h2>
+
+  <div class="card purple">
+    <h4>Q: 打开网页后显示「找不到向量库文件夹」？</h4>
+    <p>A: 说明 <code>chroma_db</code> 文件夹不在 <code>D:\k12 helper\</code> 目录下。请确认文件夹位置正确，或者重新运行一次 <code>build_rag_db.py</code>。</p>
+  </div>
+
+  <div class="card purple">
+    <h4>Q: 回答问题时报错「API Key 无效」？</h4>
+    <p>A: 检查两件事：① 环境变量 <code>DEEPSEEK_API_KEY</code> 设置了没有（在终端输入 <code>$env:DEEPSEEK_API_KEY</code> 看返回值）；② Key 是不是从 DeepSeek 开放平台复制的完整版本。</p>
+  </div>
+
+  <div class="card purple">
+    <h4>Q: 回答很慢？</h4>
+    <p>A: 每次提问需要等几秒到十几秒，因为 DeepSeek 需要时间思考并生成回答。属于正常现象。如果超过 30 秒没反应，可能是网络问题。</p>
+  </div>
+
+  <div class="card purple">
+    <h4>Q: 小K老师讲的诗是知识库里没有的？</h4>
+    <p>A: 不应该。系统 prompt 明确要求 AI「只能依据提供的诗来回答，不要编造」。如果出现了这种情况，可能是 AI 偶尔不遵守规则，属于大模型的通病，概率很低。</p>
+  </div>
+
+  <div class="card purple">
+    <h4>Q: 学情报告的数据存哪里了？会不会泄露？</h4>
+    <p>A: 所有学习记录都存在本地 <code>learning_records.db</code> 文件里（SQLite 数据库），<strong>不上传到任何云端服务器</strong>。只有生成报告时会把数据摘要发给 DeepSeek API，但 DeepSeek 不会存储这些数据（DeepSeek API 默认不记录请求内容）。</p>
+  </div>
+
+  <div class="card purple">
+    <h4>Q: 怎么清空学习记录重新开始？</h4>
+    <p>A: 直接删掉 <code>D:\k12 helper\learning_records.db</code> 文件即可。下次提问时会自动创建一个新的空数据库。</p>
+  </div>
+
+  <div class="card purple">
+    <h4>Q: API 费用贵不贵？</h4>
+    <p>A: DeepSeek V4 Pro 的 API 价格很低（几毛钱就能跑很多次）。学情报告在数据不足 3 条时不会调用 API。只提问不讲诗的话，一次大概消耗几千 token，成本极低。</p>
+  </div>
+
+  <div class="card purple">
+    <h4>Q: 能在手机上用吗？</h4>
+    <p>A: 可以！在电脑上启动后，手机连同一个 WiFi，浏览器访问 <code>http://电脑的IP地址:8501</code>（启动时终端里显示的「Network URL」就是）。</p>
+  </div>
+</section>
+
+<!-- 页脚 -->
+<footer>
+  <p>K12 古诗词讲解助手 · 2026 年 6 月 · 技术栈：Streamlit + ChromaDB + BGE + DeepSeek</p>
+</footer>
+
+</div>
+</body>
+</html>
