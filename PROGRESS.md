@@ -11,7 +11,7 @@
 
 核心功能已有可运行代码：Streamlit 古诗词 RAG 讲解助手、本地 Chroma 向量库、本地 SQLite 学习记录、DeepSeek API 讲解/学情报告，以及若干命令行数据处理脚本。
 
-本轮已完成审计后的 P0/P1/P2 集中整改：局域网访问增加口令保护，API 调用增加输入长度和冷却限制，硬编码路径集中到 `config.py`，破坏性脚本改为备份/原子写入，DB/Chroma/API/OCR 的主要崩溃点增加保护，文档移除明文 key 启动脚本建议，直接依赖已固定版本。整改版已提交、推送并发布为 `v0.2.0`。
+本轮已完成审计后的 P0/P1/P2 集中整改：局域网访问增加口令保护，API 调用增加输入长度和冷却限制，硬编码路径集中到 `config.py`，破坏性脚本改为备份/原子写入，DB/Chroma/API/OCR 的主要崩溃点增加保护，文档移除明文 key 启动脚本建议，直接依赖已固定版本。整改版已提交、推送并发布为 `v0.2.0`。随后已优化访问口令体验：登录成功后当前浏览器可记住 7 天，侧边栏可退出登录清除记住状态；学习记录已改成长远版口径，候选诗、真正讲解/复习诗、仅提及诗、未命中分开存储；并补充 GitHub README 运行说明。
 
 ---
 
@@ -26,6 +26,11 @@
 - 【2026-06-13】初始化 git 仓库，提交初始项目快照，并推送到私有仓库 `dosheda/k12` 的 `main` 分支。
 - 【2026-06-13】创建 GitHub Release `v0.1.0`。
 - 【2026-06-13】完成审计后 P0/P1/P2 整改，推送到 `main` 并发布 GitHub Release `v0.2.0`。
+- 【2026-06-13】优化访问口令体验：新增 7 天“记住此设备”签名 cookie，不保存真实口令；新增侧边栏“退出登录”清除当前浏览器记住状态。
+- 【2026-06-13】学习记录改成长远版：新增 `explained_poems`、`reviewed_poems`、`mentioned_poems`、`candidate_poems`、`record_type`，候选诗不再计入已学习，旧记录兼容读取。
+- 【2026-06-13】优化学情报告交互：从页面顶部 expander 改为弹窗显示，点击侧边栏生成后不需要回到页面顶部查看。
+- 【2026-06-13】新增 GitHub `README.md`：基于原项目说明重写，补充项目特点、技术栈、运行步骤、环境变量、建库/标签脚本、局域网访问和安全说明。
+- 【2026-06-13】提交、推送并发布新版 `v0.3.0`，包含访问体验、长远版学习统计、学情报告弹窗和 README 整理。
 
 ---
 
@@ -47,7 +52,7 @@
 - 【P2】原始错误信息暴露给用户：新增 `api_utils.classify_api_error()`，UI/CLI 输出安全文案。位置：`api_utils.py:16`、`app.py:955`、`k12_helper.py:248`、`rag_chat.py:357`。
 - 【P2】用户输入、报告 prompt 和 API 成本无上限：增加单次问题长度、冷却时间、报告记录数和 prompt 长度限制。位置：`config.py:28-32`、`app.py:540`、`app.py:599`。
 - 【P2】使用手册建议 `.bat` 明文保存 API key：已改为系统环境变量和不含密钥的启动脚本建议。位置：`使用手册.html:371-405`。
-- 【P2】模型 taught 标记解析脆弱：已支持中文逗号、顿号、分号和多行格式。位置：`app.py:508`。
+- 【P2】模型学习标记解析脆弱：已改为隐藏 JSON learning 标记，并兼容旧 taught 标记。位置：`learning_record_utils.py:14`。
 - 【P2】OCR 图片无大小/像素限制：已增加文件大小和像素上限。位置：`k12_helper.py:139`、`k12_helper.py:156`。
 - 【P2】依赖未固定且含疑似未用 LangChain 依赖：已固定直接依赖版本，并移除未发现 import 的 `langchain*` 依赖。位置：`requirements.txt:1-6`。
 - 【P2】学习数据第三方 API 流向说明不足：使用手册已改为说明普通提问和学情报告会把问题/必要摘要发送给 DeepSeek。位置：`使用手册.html:701`。
@@ -56,16 +61,16 @@
 
 ## 正在做（当前任务）
 
-- 任务：无。审计后 P0/P1/P2 整改、提交、推送和新版 release 已完成，等待用户下一步指示。
-- 进展到哪：GitHub `main` 已包含本轮修复，Release `v0.2.0` 已创建。
-- 相关文件：`config.py`、`api_utils.py`、`safe_io.py`、`app.py`、`learning_db.py`、`k12_helper.py`、`rag_chat.py`、`search_rag.py`、数据处理脚本、`requirements.txt`、`使用手册.html`、`AGENTS.md`、`AUDIT_REPORT.md`、`PROGRESS.md`。
+- 任务：无。访问体验、长远版学习统计、学情报告弹窗和 README 整理已纳入新版 `v0.3.0`。
+- 进展到哪：GitHub `main` 将包含本轮改动，Release `v0.3.0` 用于本轮发布。
+- 相关文件：`learning_db.py`、`learning_record_utils.py`、`app.py`、`PROGRESS.md`、`AGENTS.md`、`README.md`、`使用手册.html`、`auth_utils.py`。
 - 卡点/待决定：无阻塞。`chromadb==1.5.9` 截至 2026-06-13 未查到更高修复版，只能先保留本地-only 红线并持续关注升级。
 
 ---
 
 ## 下一步计划
 
-1. 补 `README.md`、`.env.example` 或配置说明，把安装、启动、环境变量、数据目录和隐私提示写清楚。
+1. 补 `.env.example` 或更细的配置示例，把可选环境变量集中列清楚。
 2. 补自动化测试目录，优先覆盖 `api_utils.py`、`learning_db.py`、`safe_io.py` 和输入校验。
 3. 抽出共享 RAG 模块，减少 `app.py` 与 `rag_chat.py` 的重复逻辑。
 4. 继续关注 `chromadb` 修复版；一旦有高于 `1.5.9` 的安全版本，优先升级并回归验证。
@@ -94,7 +99,7 @@
 
 ### P3
 
-- 【P3】缺少 `README.md`，当前主要说明仍在 `使用手册.html`。
+- 【P3】缺少 `.env.example` 或集中配置示例；README 已补基础运行说明。
 - 【P3】缺少自动化测试目录和 pytest/unittest 用例；本轮只做了语法、静态扫描和轻量 smoke test。
 - 【P3】缺少 CI、格式化、静态检查配置和 `.env.example` 或配置示例。
 - 【P3】项目根目录仍混放源码、一次性脚本、数据文件、运行时数据库、向量库和样例图片；后续可整理为 `src/`、`scripts/`、`data/`、`docs/`、`tests/`。

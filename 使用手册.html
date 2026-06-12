@@ -371,7 +371,7 @@
       <h4>设置 DeepSeek API Key 和访问口令（仅第一次需要）</h4>
       <p>在终端里粘贴下面两行（把占位内容换成你自己的）：</p>
       <pre><code>$env:DEEPSEEK_API_KEY = "你的 DeepSeek API Key"</code></pre>
-      <pre><code>$env:K12_HELPER_ACCESS_CODE = "你的访问口令"</code></pre>
+      <pre><code>$env:K12_HELPER_ACCESS_CODE = Read-Host "请输入网页访问口令"</code></pre>
       <div class="info">💡 这个 Key 去哪里弄？去 <a href="https://platform.deepseek.com" target="_blank">DeepSeek 开放平台</a> 注册一个账号，在「API Keys」页面创建一个就有了。</div>
     </div>
   </div>
@@ -393,7 +393,7 @@ python -m streamlit run app.py</code></pre>
       <h4>打开浏览器</h4>
       <p>在浏览器地址栏输入：</p>
       <pre><code>http://localhost:8501</code></pre>
-      <p>看到页面就可以开始用了！🎉</p>
+      <p>第一次进入需要输入访问口令；勾选“在此设备记住 7 天”后，同一浏览器刷新页面不用反复输入。看到页面就可以开始用了！🎉</p>
     </div>
   </div>
 
@@ -403,6 +403,10 @@ python -m streamlit run app.py</code></pre>
 
   <div class="tip">
     <strong>💡 小技巧：</strong>不要把 API Key 写进启动脚本。建议把 <code>DEEPSEEK_API_KEY</code> 和 <code>K12_HELPER_ACCESS_CODE</code> 设置为系统用户环境变量；启动脚本里只保留 <code>python -m streamlit run app.py</code> 这一类不含密钥的命令。
+  </div>
+
+  <div class="info">
+    <strong>🔐 访问口令：</strong>访问口令只用于进入网页，不是 DeepSeek API Key。登录成功后当前浏览器会记住 7 天；如果是在公用设备上使用，可以取消勾选“在此设备记住 7 天”，或在侧边栏点击“退出登录”清除记住状态。
   </div>
 </section>
 
@@ -427,7 +431,7 @@ python -m streamlit run app.py</code></pre>
     </tr>
     <tr>
       <td>📈 学习概览</td>
-      <td>显示孩子一共问了多少次、接触了多少首诗、最常关注哪些主题</td>
+      <td>显示孩子一共问了多少次、真正学习了多少首诗、复习次数和主题覆盖情况</td>
     </tr>
     <tr>
       <td>📊 生成学情报告</td>
@@ -450,8 +454,8 @@ python -m streamlit run app.py</code></pre>
       <td>「📖K12 古诗词讲解助手」和欢迎语</td>
     </tr>
     <tr>
-      <td>学情报告区</td>
-      <td>点击生成报告后，报告会出现在这里（可以折叠、可以关闭）</td>
+      <td>学情报告弹窗</td>
+      <td>点击生成报告后，报告会以弹窗打开，不需要回到页面顶部查看</td>
     </tr>
     <tr>
       <td>对话历史</td>
@@ -522,23 +526,25 @@ python -m streamlit run app.py</code></pre>
   <p>每次孩子提问时，系统会自动记录：</p>
   <ul>
     <li>问了什么问题</li>
-    <li>检索到了哪些诗</li>
-    <li>这些诗涉及哪些主题标签（如思乡、写景、送别……）</li>
+    <li>真正展开讲解或复习了哪些诗</li>
+    <li>只是点名但没有展开的诗</li>
+    <li>本轮检索到的候选诗（只作存档，不算已学习）</li>
+    <li>真正学习/复习过的诗涉及哪些主题标签（如思乡、写景、送别……）</li>
     <li>提问的时间</li>
   </ul>
   <p>数据存在本地 SQLite 数据库里，<strong>关掉浏览器下次打开还在</strong>。</p>
 
   <h4>实时统计</h4>
-  <p>左侧边栏「📈 学习概览」实时显示：总提问次数、接触了多少首不同的诗、最常关注的主题标签。</p>
+  <p>左侧边栏「📈 学习概览」实时显示：总提问次数、真正学习了多少首不同的诗、复习次数、仅提及/未命中次数、最常练习主题和已覆盖主题。</p>
 
   <h4>生成学情报告</h4>
-  <p>点击侧边栏「📊 生成学情报告」按钮，AI 会分析孩子的学习数据，生成一份给家长看的分板报告，包含 5 个板块：</p>
+  <p>点击侧边栏「📊 生成学情报告」按钮，AI 会分析孩子的学习数据，并以弹窗方式生成一份给家长看的分板报告，包含 5 个板块：</p>
   <table>
     <tr><th>板块</th><th>内容</th></tr>
-    <tr><td>📊 学习概览</td><td>提问次数、接触诗数</td></tr>
+    <tr><td>📊 学习概览</td><td>提问次数、真正学习诗数、复习次数</td></tr>
     <tr><td>🔍 兴趣分析</td><td>孩子对哪些主题最感兴趣</td></tr>
-    <tr><td>⚖️ 均衡性评估</td><td>接触面是否均衡、缺少哪些类型</td></tr>
-    <tr><td>💡 拓展建议</td><td>推荐还没接触过的诗歌类型</td></tr>
+    <tr><td>⚖️ 均衡性评估</td><td>学习覆盖面是否均衡、缺少哪些类型</td></tr>
+    <tr><td>💡 拓展建议</td><td>推荐还没真正学习过的诗歌类型</td></tr>
     <tr><td>🌟 学习寄语</td><td>温暖的鼓励和后续学习方向</td></tr>
   </table>
 

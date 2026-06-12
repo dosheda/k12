@@ -1,7 +1,7 @@
 """
 学习行为记录模块 —— SQLite 持久化存储
 ======================================
-记录每次用户的提问、检索到的诗（每首诗完整标签）、时间戳。
+记录每次用户的提问、真正讲解/复习/仅提及/候选的诗（每首诗完整标签）、时间戳。
 跨会话累积 —— 数据存在本地 learning_records.db 文件里，
 关掉浏览器下次打开还在。
 
@@ -15,9 +15,13 @@
   learning_records
     ├── id           INTEGER PRIMARY KEY AUTOINCREMENT
     ├── question     TEXT    — 用户的问题
-    ├── poem_data    TEXT    — JSON，每首诗的名字和标签列表
-    │                         格式：[{"title": "《静夜思》 李白", "tags": ["思乡", "月亮", "借景抒情"]}, ...]
+    ├── poem_data    TEXT    — 旧版兼容列，曾表示被记录的诗
     ├── tags         TEXT    — （已弃用，保留列兼容旧记录，存空字符串）
+    ├── record_type  TEXT    — explained/reviewed/mixed/mentioned/no_match
+    ├── explained_poems TEXT — 真正展开讲解的新诗
+    ├── reviewed_poems  TEXT — 已学过、这次又展开复习的诗
+    ├── mentioned_poems TEXT — 只是点名/对比/建议，未展开的诗
+    ├── candidate_poems TEXT — 本轮检索候选，存档但不计入学习统计
     └── created_at   TEXT    — ISO 8601 时间戳
 
 v2 改动：
@@ -26,7 +30,11 @@ v2 改动：
     旧的按记录计次：每条记录里合并了 8 首诗的全部标签（100+ 个），
     导致公共标签几乎每条记录都有，计数全部相同（都等于总记录数）。
     新的按诗计次：每首诗独立计数，跨记录累加，
-    标签出现频次真正反映它在所有接触过的诗里出现了多少次。
+    标签出现频次真正反映它在所有讲解/复习过的诗里出现了多少次。
+
+v3 改动：
+  - 候选诗、真正讲解/复习诗、仅提及诗分开存储。
+  - “已学习古诗数”和主题统计只看真正讲解/复习的诗，不再把候选诗算作接触。
 """
 
 import sqlite3
@@ -38,6 +46,14 @@ from config import LEARNING_DB_PATH, MAX_USER_QUERY_CHARS
 
 # 数据库文件路径（和 app.py 在同一目录）
 DB_PATH = LEARNING_DB_PATH
+
+JSON_COLUMNS = {
+    "explained_poems": "TEXT NOT NULL DEFAULT '[]'",
+    "reviewed_poems": "TEXT NOT NULL DEFAULT '[]'",
+    "mentioned_poems": "TEXT NOT NULL DEFAULT '[]'",
+    "candidate_poems": "TEXT NOT NULL DEFAULT '[]'",
+    "record_type": "TEXT NOT NULL DEFAULT 'no_match'",
+}
 
 
 # ============================================================
@@ -80,6 +96,51 @@ def _load_poem_data(raw_text: str) -> list:
     return cleaned
 
 
+def _dump_poem_data(poem_data: list) -> str:
+    return json.dumps(poem_data or [], ensure_ascii=False)
+
+
+def _ensure_columns(conn):
+    existing = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(learning_records)").fetchall()
+    }
+    for column, definition in JSON_COLUMNS.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE learning_records ADD COLUMN {column} {definition}")
+
+
+def _row_poem_groups(row) -> dict:
+    explained = _load_poem_data(row["explained_poems"]) if "explained_poems" in row.keys() else []
+    reviewed = _load_poem_data(row["reviewed_poems"]) if "reviewed_poems" in row.keys() else []
+    mentioned = _load_poem_data(row["mentioned_poems"]) if "mentioned_poems" in row.keys() else []
+    candidates = _load_poem_data(row["candidate_poems"]) if "candidate_poems" in row.keys() else []
+
+    legacy_poems = _load_poem_data(row["poem_data"])
+    if not (explained or reviewed or mentioned) and legacy_poems:
+        explained = legacy_poems
+
+    return {
+        "explained_poems": explained,
+        "reviewed_poems": reviewed,
+        "mentioned_poems": mentioned,
+        "candidate_poems": candidates,
+        "poem_data": explained + reviewed,
+    }
+
+
+def _record_type(groups: dict, stored_type: str = "") -> str:
+    if groups["explained_poems"] and groups["reviewed_poems"]:
+        return "mixed"
+    if groups["explained_poems"]:
+        return "explained"
+    if groups["reviewed_poems"]:
+        return "reviewed"
+    if groups["mentioned_poems"]:
+        return "mentioned"
+    return stored_type or "no_match"
+
+
 # ============================================================
 # 初始化：建表（如果不存在）
 # ============================================================
@@ -98,6 +159,7 @@ def init_db():
             created_at TEXT NOT NULL           -- ISO 8601 时间，如 2026-06-12T15:30:00
         )
     """)
+    _ensure_columns(conn)
     conn.commit()
     conn.close()
 
@@ -116,16 +178,52 @@ def record_learning(question: str, poem_data: list):
                  其中 tags 是 list 而非字符串 —— 每首诗的标签独立保存，
                  这样统计时可以按诗计数，反映每个标签真正出现在多少首诗里。
     """
+    record_interaction(
+        question=question,
+        explained_poems=poem_data,
+        reviewed_poems=[],
+        mentioned_poems=[],
+        candidate_poems=[],
+        record_type="explained" if poem_data else "no_match",
+    )
+
+
+def record_interaction(
+    question: str,
+    explained_poems: list,
+    reviewed_poems: list,
+    mentioned_poems: list,
+    candidate_poems: list,
+    record_type: str,
+):
+    """Write one long-term learning interaction record."""
     init_db()
 
     conn = _get_conn()
     conn.execute(
-        "INSERT INTO learning_records (question, poem_data, tags, created_at) VALUES (?, ?, ?, ?)",
+        """
+        INSERT INTO learning_records (
+            question,
+            poem_data,
+            tags,
+            created_at,
+            record_type,
+            explained_poems,
+            reviewed_poems,
+            mentioned_poems,
+            candidate_poems
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
         (
             question[:MAX_USER_QUERY_CHARS],
-            json.dumps(poem_data, ensure_ascii=False),  # 结构化诗数据 → JSON
+            _dump_poem_data(explained_poems + reviewed_poems),  # 旧版兼容列
             "",  # tags 列已弃用，留空
             datetime.now().isoformat(),
+            record_type,
+            _dump_poem_data(explained_poems),
+            _dump_poem_data(reviewed_poems),
+            _dump_poem_data(mentioned_poems),
+            _dump_poem_data(candidate_poems),
         ),
     )
     conn.commit()
@@ -139,18 +237,24 @@ def get_stats() -> dict:
     """
     从数据库里算出基础统计数据，供侧边栏显示。
 
-    v2 改动：标签统计改成「按诗计次」。
-      旧逻辑：每条记录里的标签合并成一个大字符串 → 标签出现在几条记录里就计几次
-              → 每记录 100+ 标签，公共标签必出现于所有记录，计数全等于总记录数
-      新逻辑：遍历每首诗的标签 → 每个标签每出现在一首诗里计 1 次
-              → 不同标签因为覆盖度不同，计数就有高有低了
+    v3 口径：
+      - 总提问次数：所有成功记录。
+      - 已学习古诗数：真正讲解/复习过的诗，按诗名去重。
+      - 最常练习主题：讲解/复习每发生一次就累计标签，反映近期练习焦点。
+      - 已覆盖主题：每首已学习诗只计一次标签，反映覆盖面。
+      - 仅提及诗、候选诗不计入已学习和主题覆盖。
 
     返回：
       {
         "total_questions": int,          # 一共问了多少次
-        "total_poems": int,              # 接触了多少首不同的诗（按诗名去重）
-        "top_tags": [(tag, count), …],   # 出现最多的标签 Top 10（按诗计次）
-        "all_poems": [str, …],           # 接触过的所有诗名（排序去重）
+        "total_poems": int,              # 兼容旧字段：已学习古诗数
+        "learned_poem_count": int,
+        "review_count": int,
+        "mentioned_count": int,
+        "no_match_count": int,
+        "top_tags": [(tag, count), …],   # 兼容旧字段：最常练习主题
+        "coverage_tags": [(tag, count), …],
+        "all_poems": [str, …],           # 已学习诗名（排序去重）
       }
     """
     init_db()
@@ -161,37 +265,76 @@ def get_stats() -> dict:
         "SELECT COUNT(*) FROM learning_records"
     ).fetchone()[0]
 
-    # ---- 标签按诗计次 + 诗名收集 ----
-    rows = conn.execute("SELECT poem_data FROM learning_records").fetchall()
-    tag_counts = {}    # {标签: 出现在多少首诗里}
-    all_poems = set()  # 去重诗名集合
+    rows = conn.execute(
+        """
+        SELECT
+            poem_data,
+            record_type,
+            explained_poems,
+            reviewed_poems,
+            mentioned_poems,
+            candidate_poems
+        FROM learning_records
+        """
+    ).fetchall()
+
+    practice_tag_counts = {}
+    learned_poem_tags = {}
+    review_count = 0
+    mentioned_count = 0
+    no_match_count = 0
 
     for row in rows:
-        poems = _load_poem_data(row["poem_data"])  # [{title, tags: [...]}, ...]
+        groups = _row_poem_groups(row)
+        learned_poems = groups["explained_poems"] + groups["reviewed_poems"]
+        review_count += len(groups["reviewed_poems"])
+        mentioned_count += len(groups["mentioned_poems"])
 
-        for poem in poems:
+        if not learned_poems and not groups["mentioned_poems"]:
+            no_match_count += 1
+
+        for poem in learned_poems:
             title = poem.get("title", "")
             if title:
-                all_poems.add(title)
+                learned_poem_tags.setdefault(title, poem.get("tags", []))
 
-            # 每个标签在这首诗里计 1 次
             tags = poem.get("tags", [])
             for tag in tags:
                 tag = tag.strip()
                 if tag:
-                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
+                    practice_tag_counts[tag] = practice_tag_counts.get(tag, 0) + 1
 
-    # 按出现次数降序，取前 10
-    top_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    coverage_tag_counts = {}
+    for tags in learned_poem_tags.values():
+        for tag in tags:
+            tag = tag.strip()
+            if tag:
+                coverage_tag_counts[tag] = coverage_tag_counts.get(tag, 0) + 1
+
+    top_tags = sorted(practice_tag_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    coverage_tags = sorted(coverage_tag_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    all_poems = sorted(learned_poem_tags)
 
     conn.close()
 
     return {
         "total_questions": total_questions,
         "total_poems": len(all_poems),
+        "learned_poem_count": len(all_poems),
+        "review_count": review_count,
+        "mentioned_count": mentioned_count,
+        "no_match_count": no_match_count,
         "top_tags": top_tags,
-        "all_poems": sorted(all_poems),
+        "practice_tags": top_tags,
+        "coverage_tags": coverage_tags,
+        "all_poems": all_poems,
     }
+
+
+def get_learned_poem_titles() -> set:
+    """Return titles that have been truly explained or reviewed."""
+    stats = get_stats()
+    return set(stats["all_poems"])
 
 
 # ============================================================
@@ -203,27 +346,46 @@ def get_all_records() -> list:
     每条记录是一个 dict：
       {
         "question": str,
-        "poem_data": [
-            {"title": "《静夜思》 李白", "tags": ["思乡", "月亮", ...]},
-            ...
-        ],
+        "poem_data": [...]         # 兼容旧字段：explained + reviewed
+        "explained_poems": [...]
+        "reviewed_poems": [...]
+        "mentioned_poems": [...]
+        "candidate_poems": [...]
+        "record_type": str,
         "created_at": str,
       }
     """
     init_db()
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT question, poem_data, created_at FROM learning_records ORDER BY created_at"
+        """
+        SELECT
+            question,
+            poem_data,
+            record_type,
+            explained_poems,
+            reviewed_poems,
+            mentioned_poems,
+            candidate_poems,
+            created_at
+        FROM learning_records
+        ORDER BY created_at
+        """
     ).fetchall()
     conn.close()
 
     records = []
     for row in rows:
-        poem_data = _load_poem_data(row["poem_data"])
-        # poem_data 是 [{title, tags: [...]}, ...]
+        groups = _row_poem_groups(row)
+        record_type = _record_type(groups, row["record_type"])
         records.append({
             "question": row["question"],
-            "poem_data": poem_data,
+            "poem_data": groups["poem_data"],
+            "explained_poems": groups["explained_poems"],
+            "reviewed_poems": groups["reviewed_poems"],
+            "mentioned_poems": groups["mentioned_poems"],
+            "candidate_poems": groups["candidate_poems"],
+            "record_type": record_type,
             "created_at": row["created_at"],
         })
     return records

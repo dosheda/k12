@@ -20,6 +20,13 @@ import streamlit as st
 # 学习行为记录模块（新增：智能学情分析）
 import learning_db
 from api_utils import classify_api_error, extract_chat_content
+from auth_utils import (
+    AUTH_COOKIE_MAX_AGE_SECONDS,
+    AUTH_COOKIE_NAME,
+    create_remember_token,
+    validate_remember_token,
+)
+from learning_record_utils import build_interaction_payload, parse_learning_marker
 from config import (
     ACCESS_CODE,
     ACCESS_CODE_ENV,
@@ -70,6 +77,39 @@ if "messages" not in st.session_state:
     st.session_state.messages = []  # 对话历史，初始为空
 
 
+def remembered_access_ok() -> bool:
+    """Return True when this browser has a valid remembered login cookie."""
+    try:
+        token = st.context.cookies.get(AUTH_COOKIE_NAME)
+    except Exception:
+        token = None
+    return validate_remember_token(token, ACCESS_CODE)
+
+
+def write_auth_cookie_script(token: str | None, reload_page: bool = False):
+    """Write or clear the browser auth cookie from a tiny Streamlit component."""
+    if token:
+        cookie_value = (
+            f"{AUTH_COOKIE_NAME}={token}; "
+            f"Max-Age={AUTH_COOKIE_MAX_AGE_SECONDS}; Path=/; SameSite=Lax"
+        )
+    else:
+        cookie_value = f"{AUTH_COOKIE_NAME}=; Max-Age=0; Path=/; SameSite=Lax"
+
+    reload_js = "window.parent.location.reload();" if reload_page else ""
+    html = f"""
+<script>
+(function() {{
+  const cookieValue = {json.dumps(cookie_value)};
+  try {{ document.cookie = cookieValue; }} catch (err) {{}}
+  try {{ window.parent.document.cookie = cookieValue; }} catch (err) {{}}
+  {reload_js}
+}})();
+</script>
+"""
+    st.components.v1.html(html, height=0)
+
+
 def require_access_code():
     """Require a local access code before exposing LAN-visible functions."""
     if not ACCESS_CODE:
@@ -84,12 +124,22 @@ def require_access_code():
     if st.session_state.get("_access_ok"):
         return
 
+    if remembered_access_ok():
+        st.session_state._access_ok = True
+        return
+
     st.title("K12 古诗词讲解助手")
-    st.caption("请输入访问口令后继续。")
+    st.caption("请输入访问口令后继续。验证通过后，此设备可记住 7 天。")
     entered = st.text_input("访问口令", type="password")
+    remember_device = st.checkbox("在此设备记住 7 天", value=True)
     if st.button("进入", use_container_width=True):
         if hmac.compare_digest(entered, ACCESS_CODE):
             st.session_state._access_ok = True
+            if remember_device:
+                token = create_remember_token(ACCESS_CODE)
+                st.success("验证通过，此设备 7 天内刷新免输入。")
+                write_auth_cookie_script(token, reload_page=True)
+                st.stop()
             st.rerun()
         else:
             st.error("访问口令不正确。")
@@ -481,9 +531,12 @@ def build_messages_for_api(user_query: str) -> list[dict]:
         f"请根据上面的诗来回答这个学生。"
         f"如果这些诗里没有真正符合学生问题的，但前面我们聊过的诗里有，你可以基于前面聊过的来回答。"
         f"如果确实没有任何诗符合，请如实告知。\n\n"
-        f"【重要】请在回答的最后单独加一行标记，列出你真正讲解了的诗（只列标题中的诗名，"
-        f"不要带作者和朝代）。格式：<!-- taught: 诗名1, 诗名2 --> 。"
-        f"如果一首都没讲到就不要加这一行。这个标记不会显示给学生看。"
+        f"【重要】请在回答最后单独加一行隐藏学习标记，格式必须是："
+        f'<!-- learning: {{"explained":["诗名1"],"mentioned":["诗名2"],"no_match":false}} --> 。'
+        f"explained 只放你真正展开解释、赏析或带学生学习的诗；"
+        f"mentioned 只放你顺嘴点名、对比、建议以后学但没有展开讲的诗；"
+        f"如果没有任何合适诗，也没有真正讲解诗，把 no_match 写成 true。"
+        f"诗名只写标题中的诗名，不要带作者和朝代。这个标记不会显示给学生看。"
     )
     messages.append({"role": "user", "content": current_user_message})
 
@@ -502,32 +555,8 @@ def chat_with_deepseek(messages: list[dict]) -> str:
 
 
 # ============================================================
-# 第 7 步：工具函数 —— 解析模型标注 + 裁剪历史
+# 第 7 步：工具函数 —— 裁剪历史
 # ============================================================
-
-def parse_taught_poems(answer: str) -> tuple:
-    """
-    从 DeepSeek 回答末尾解析「实际讲解了哪些诗」的标记。
-    标记格式：<!-- taught: 静夜思, 望庐山瀑布, 春晓 -->
-
-    返回：(clean_answer, poem_names)
-      clean_answer: 剥离标记后的回答文本（给用户看 / TTS 朗读）
-      poem_names:   ["静夜思", "望庐山瀑布", "春晓"] 或 []
-    """
-    import re
-    marker_pat = r'<!--\s*taught:\s*(.*?)-->'
-    m = re.search(marker_pat, answer, flags=re.DOTALL)
-    if not m:
-        return answer, []  # 模型没按要求加标记 → 回退返回空列表
-
-    # 解析诗名列表
-    raw = m.group(1).strip()
-    poem_names = [name.strip() for name in re.split(r'[,，、;\n]+', raw) if name.strip()]
-
-    # 从回答里删掉整行标记
-    clean = re.sub(r'\n?<!--\s*taught:.*?-->\n?', '', answer, flags=re.DOTALL)
-
-    return clean, poem_names
 
 
 def trim_history():
@@ -575,9 +604,9 @@ REPORT_SYSTEM_PROMPT = (
     "你的报告读者是家长，所以语气要温暖、鼓励，让家长感受到孩子的成长。\n"
     "\n"
     "报告要求：\n"
-    "1. 开头先简单总结：孩子一共提问了多少次，接触了多少首诗。\n"
-    "2. 分析孩子目前对哪些主题感兴趣（根据高频标签得出）。\n"
-    "3. 评估接触面是否均衡：\n"
+    "1. 开头先简单总结：孩子一共提问了多少次，真正学习了多少首诗，复习了几次。\n"
+    "2. 分析孩子目前对哪些主题感兴趣（根据真正讲解/复习过的高频标签得出）。\n"
+    "3. 评估学习覆盖面是否均衡：\n"
     "   - 知识库涵盖了写景、送别、思乡、边塞、咏物、哲理、爱国、田园等多种类型\n"
     "   - 指出孩子目前关注较多的类型和关注较少的类型\n"
     "4. 给出拓展建议：还有哪些类型的诗可以多了解，为什么这些类型也值得读。\n"
@@ -620,7 +649,7 @@ def generate_learning_report() -> str:
             "## 📊 学情分析报告\n\n"
             "### 🕰️ 学习记录还比较少\n\n"
             f"目前孩子一共提出了 **{stats['total_questions']}** 个问题，"
-            f"接触了 **{stats['total_poems']}** 首诗。\n\n"
+            f"真正学习了 **{stats['learned_poem_count']}** 首诗。\n\n"
             "数据量还不够生成详细的分析报告。**再多用一会儿，小K老师就能给出更全面的学情分析！**\n\n"
             "建议：试着问一些不同类型的问题，比如：\n"
             "- 写景的诗有哪些？\n"
@@ -633,19 +662,28 @@ def generate_learning_report() -> str:
     # 构建一份清晰的文字摘要，让 DeepSeek 基于它来分析
 
     # 3a. 标签频次（前 15）
-    tag_summary = "、".join(
-        f"{tag}（{count}次）" for tag, count in stats["top_tags"][:15]
+    practice_tag_summary = "、".join(
+        f"{tag}（{count}次）" for tag, count in stats["practice_tags"][:15]
+    )
+    coverage_tag_summary = "、".join(
+        f"{tag}（{count}首）" for tag, count in stats["coverage_tags"][:15]
     )
 
     # 3b. 提问和诗名列表
     records_for_prompt = records[-MAX_REPORT_RECORDS:]
+    def _titles(poems):
+        return "、".join(p["title"][:MAX_REPORT_FIELD_CHARS] for p in poems[:3]) or "无"
+
     question_list = "\n".join(
         f"  {i+1}. {r['question'][:MAX_REPORT_FIELD_CHARS]}"
-        f"（讲了：{'、'.join(p['title'][:MAX_REPORT_FIELD_CHARS] for p in r['poem_data'][:3])}）"
+        f"（新学：{_titles(r['explained_poems'])}；"
+        f"复习：{_titles(r['reviewed_poems'])}；"
+        f"仅提及：{_titles(r['mentioned_poems'])}；"
+        f"类型：{r['record_type']}）"
         for i, r in enumerate(records_for_prompt)
     )
 
-    # 3c. 接触过的所有诗
+    # 3c. 真正学习过的所有诗
     poem_list = "、".join(stats["all_poems"])[:MAX_REPORT_PROMPT_CHARS // 3]
 
     # ---- 4. 组装 prompt ----
@@ -653,11 +691,15 @@ def generate_learning_report() -> str:
         "请根据以下学习数据，生成一份学情分析报告：\n\n"
         f"【基本统计】\n"
         f"  - 总提问次数：{stats['total_questions']}\n"
-        f"  - 接触过的不同诗：{stats['total_poems']} 首\n"
-        f"  - 最常出现的主题标签：{tag_summary}\n\n"
+        f"  - 真正学习过的不同诗：{stats['learned_poem_count']} 首\n"
+        f"  - 复习次数：{stats['review_count']}\n"
+        f"  - 仅提及次数：{stats['mentioned_count']}\n"
+        f"  - 未命中/未讲解次数：{stats['no_match_count']}\n"
+        f"  - 最常练习的主题标签：{practice_tag_summary}\n"
+        f"  - 已覆盖的主题标签：{coverage_tag_summary}\n\n"
         f"【提问记录】\n"
         f"{question_list}\n\n"
-        f"【接触过的诗】\n"
+        f"【真正学习过的诗】\n"
         f"{poem_list}\n\n"
         f"请基于以上数据生成报告。记住：语气温暖、适合家长阅读、"
         f"给出具体的拓展建议。如果数据明显偏向某个类型，如实指出。"
@@ -689,10 +731,20 @@ def generate_learning_report() -> str:
             "### ⚠️ AI 报告生成暂时失败\n\n"
             f"但这里有一些基础数据：\n\n"
             f"- 总提问次数：**{stats['total_questions']}**\n"
-            f"- 接触过的诗：**{stats['total_poems']}** 首\n"
-            f"- 最常关注的主题：{tag_summary if tag_summary else '暂无'}\n\n"
+            f"- 真正学习过的诗：**{stats['learned_poem_count']}** 首\n"
+            f"- 复习次数：**{stats['review_count']}**\n"
+            f"- 最常练习主题：{practice_tag_summary if practice_tag_summary else '暂无'}\n\n"
             f"等 API 恢复后再试一次就好～"
         )
+
+
+@st.dialog("学情分析报告", width="large")
+def render_learning_report_dialog():
+    """Show the generated learning report without moving the chat viewport."""
+    st.markdown(st.session_state.report_text)
+    if st.button("关闭报告", use_container_width=True):
+        st.session_state.show_report = False
+        st.rerun()
 
 
 # ============================================================
@@ -807,6 +859,11 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()  # 立刻刷新页面，让改动生效
 
+    if st.button("🔒 退出登录", use_container_width=True):
+        st.session_state._access_ok = False
+        write_auth_cookie_script(None, reload_page=True)
+        st.stop()
+
     st.divider()
 
     # ============================================================
@@ -817,14 +874,25 @@ with st.sidebar:
         stats = learning_db.get_stats()
         if stats["total_questions"] > 0:
             st.metric("总提问次数", stats["total_questions"])
-            st.metric("接触古诗数", stats["total_poems"])
-            if stats["top_tags"]:
-                st.caption("最常关注的主题：")
-                # 用标签云式展示前 8 个高频标签
+            st.metric("已学习古诗数", stats["learned_poem_count"])
+            if stats["review_count"] > 0:
+                st.caption(f"复习次数：{stats['review_count']}")
+            if stats["mentioned_count"] > 0 or stats["no_match_count"] > 0:
+                st.caption(
+                    f"仅提及：{stats['mentioned_count']} 次 · 未命中/未讲解：{stats['no_match_count']} 次"
+                )
+            if stats["practice_tags"]:
+                st.caption("最常练习主题：")
                 tag_text = " · ".join(
-                    f"{tag}({count})" for tag, count in stats["top_tags"][:8]
+                    f"{tag}({count})" for tag, count in stats["practice_tags"][:8]
                 )
                 st.info(tag_text)
+            if stats["coverage_tags"]:
+                st.caption("已覆盖主题：")
+                coverage_text = " · ".join(
+                    f"{tag}({count})" for tag, count in stats["coverage_tags"][:8]
+                )
+                st.info(coverage_text)
         else:
             st.caption("暂无学习记录")
             st.caption("开始提问后会自动记录～")
@@ -869,15 +937,9 @@ if st.session_state.get("_pending_report"):
         st.session_state._pending_report = False
     st.rerun()
 
-# ---- 显示已生成的报告 ----
+# ---- 弹窗显示已生成的报告 ----
 if st.session_state.get("show_report") and st.session_state.get("report_text"):
-    with st.expander("📊 学情分析报告", expanded=True):
-        st.markdown(st.session_state.report_text)
-        # 关闭按钮
-        if st.button("✕ 关闭报告"):
-            st.session_state.show_report = False
-            st.rerun()
-    st.divider()
+    render_learning_report_dialog()
 
 # ---------- 渲染对话历史 ----------
 # st.chat_message 会画一个聊天气泡，role="user" 靠右，role="assistant" 靠左
@@ -912,11 +974,8 @@ if raw_user_query := st.chat_input("在这里输入你的问题……"):
                 # 调 API
                 answer = chat_with_deepseek(api_messages)
 
-                # ---- 解析模型标注：实际讲了哪些诗 ----
-                # 让模型自己标比正则猜诗名可靠得多：
-                #   - 不会把随口提一句的诗当成"讲了"
-                #   - 不会漏掉诗名写法有差异的诗
-                clean_answer, taught_names = parse_taught_poems(answer)
+                # ---- 解析模型标注：真正讲解 / 仅提及 / 未命中 ----
+                clean_answer, learning_marker = parse_learning_marker(answer)
 
                 # 显示回答（剥离标记后的干净版本）
                 st.markdown(clean_answer)
@@ -930,22 +989,30 @@ if raw_user_query := st.chat_input("在这里输入你的问题……"):
                 # 裁剪历史，防止过长
                 trim_history()
 
-                # ---- 记录学习行为：只用模型标记的诗 ----
+                # ---- 记录学习行为：候选、讲解、复习、提及分开存 ----
                 last_search = st.session_state.get("_last_search_structured", [])
-                if last_search and taught_names:
-                    # 按标记的诗名匹配检索结果中的诗
-                    poem_data = []
-                    for p in last_search:
-                        short = p["title"].split("》")[0].lstrip("《") if "《" in p["title"] else p["title"]
-                        if short in taught_names or p["title"] in taught_names:
-                            # 去重：标签4维度合并时同一词可能出现在不同维度（如"惜别"同时是题材和情感）
-                            tags_list = list(set(
-                                t.strip() for t in p["tags"].split("、") if t.strip()
-                            ))
-                            poem_data.append({"title": p["title"], "tags": tags_list})
+                learned_titles = learning_db.get_learned_poem_titles()
+                interaction = build_interaction_payload(
+                    search_results=last_search,
+                    poem_catalog=load_poem_data(),
+                    learned_titles=learned_titles,
+                    learning_marker=learning_marker,
+                )
+                learning_db.record_interaction(
+                    question=user_query,
+                    explained_poems=interaction["explained_poems"],
+                    reviewed_poems=interaction["reviewed_poems"],
+                    mentioned_poems=interaction["mentioned_poems"],
+                    candidate_poems=interaction["candidate_poems"],
+                    record_type=interaction["record_type"],
+                )
 
-                    if poem_data:
-                        learning_db.record_learning(user_query, poem_data)
+                if interaction["explained_poems"] or interaction["reviewed_poems"]:
+                    st.toast("学习概览已更新", icon="📈")
+                elif interaction["mentioned_poems"]:
+                    st.toast("已记录本次提问（仅提及不计入已学习）", icon="📝")
+                else:
+                    st.toast("已记录本次提问（未命中具体诗）", icon="📝")
 
                 # 立刻重跑一次脚本，让侧边栏的轮数、对话历史全部刷新为最新
                 st.rerun()
