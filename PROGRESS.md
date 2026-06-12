@@ -11,7 +11,7 @@
 
 核心功能已有可运行代码：Streamlit 古诗词 RAG 讲解助手、本地 Chroma 向量库、本地 SQLite 学习记录、DeepSeek API 讲解/学情报告，以及若干命令行数据处理脚本。
 
-本轮已完成审计后的 P0/P1/P2 集中整改：局域网访问增加口令保护，API 调用增加输入长度和冷却限制，硬编码路径集中到 `config.py`，破坏性脚本改为备份/原子写入，DB/Chroma/API/OCR 的主要崩溃点增加保护，文档移除明文 key 启动脚本建议，直接依赖已固定版本。当前准备提交、推送并发布新版 `v0.2.0`。
+本轮已完成审计后的 P0/P1/P2 集中整改：局域网访问增加口令保护，API 调用增加输入长度和冷却限制，硬编码路径集中到 `config.py`，破坏性脚本改为备份/原子写入，DB/Chroma/API/OCR 的主要崩溃点增加保护，文档移除明文 key 启动脚本建议，直接依赖已固定版本。整改版已提交、推送并发布为 `v0.2.0`。
 
 ---
 
@@ -25,7 +25,7 @@
 - 【2026-06-13】新增 `.gitignore`，过滤 `learning_records.db`、`chroma_db/`、`__pycache__/`、`.env*`、真实启动脚本、备份文件和凭证类文件。
 - 【2026-06-13】初始化 git 仓库，提交初始项目快照，并推送到私有仓库 `dosheda/k12` 的 `main` 分支。
 - 【2026-06-13】创建 GitHub Release `v0.1.0`。
-- 【2026-06-13】完成审计后 P0/P1/P2 整改，准备发布 `v0.2.0`。
+- 【2026-06-13】完成审计后 P0/P1/P2 整改，推送到 `main` 并发布 GitHub Release `v0.2.0`。
 
 ---
 
@@ -56,8 +56,8 @@
 
 ## 正在做（当前任务）
 
-- 任务：完成审计后 P0/P1/P2 整改，提交、推送并发布新版。
-- 进展到哪：代码和文档已完成整改，正在做检查、提交、推送和 release。
+- 任务：无。审计后 P0/P1/P2 整改、提交、推送和新版 release 已完成，等待用户下一步指示。
+- 进展到哪：GitHub `main` 已包含本轮修复，Release `v0.2.0` 已创建。
 - 相关文件：`config.py`、`api_utils.py`、`safe_io.py`、`app.py`、`learning_db.py`、`k12_helper.py`、`rag_chat.py`、`search_rag.py`、数据处理脚本、`requirements.txt`、`使用手册.html`、`AGENTS.md`、`AUDIT_REPORT.md`、`PROGRESS.md`。
 - 卡点/待决定：无阻塞。`chromadb==1.5.9` 截至 2026-06-13 未查到更高修复版，只能先保留本地-only 红线并持续关注升级。
 
@@ -65,10 +65,10 @@
 
 ## 下一步计划
 
-1. 跑语法检查、轻量行为检查、Bandit 扫描、密钥/硬编码路径扫描。
-2. 用本地 Streamlit smoke test 验证访问口令页和应用能启动。
-3. 提交本轮修复，推送到 `main`。
-4. 创建 GitHub Release `v0.2.0`。
+1. 补 `README.md`、`.env.example` 或配置说明，把安装、启动、环境变量、数据目录和隐私提示写清楚。
+2. 补自动化测试目录，优先覆盖 `api_utils.py`、`learning_db.py`、`safe_io.py` 和输入校验。
+3. 抽出共享 RAG 模块，减少 `app.py` 与 `rag_chat.py` 的重复逻辑。
+4. 继续关注 `chromadb` 修复版；一旦有高于 `1.5.9` 的安全版本，优先升级并回归验证。
 
 ---
 
@@ -119,4 +119,4 @@
 - 不要把 Chroma 改成 HTTP server；当前只允许本地 `PersistentClient`。
 - 不要把 API key 或访问口令写入 `.bat`、`.env`、说明文档真实示例或任何会提交的文件。
 - 新增路径请放进 `config.py` 或环境变量，不要重新写本机绝对路径。
-- 当前仓库远端是 `https://github.com/dosheda/k12.git`，默认分支 `main`，已有 release `v0.1.0`，本轮准备发布 `v0.2.0`。
+- 当前仓库远端是 `https://github.com/dosheda/k12.git`，默认分支 `main`，已有 release `v0.1.0` 和 `v0.2.0`。
