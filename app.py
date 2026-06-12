@@ -15,6 +15,7 @@ import json      # 用于把 Python 字符串安全嵌入 JavaScript
 import re        # 用于清理 markdown 格式符号
 import hmac
 import time
+import uuid
 import streamlit as st
 
 # 学习行为记录模块（新增：智能学情分析）
@@ -53,6 +54,11 @@ from chromadb.utils import embedding_functions
 from openai import OpenAI
 
 
+CHAT_SESSION_COOKIE_NAME = "k12_helper_chat_session"
+CHAT_SESSION_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+CHAT_SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+
+
 # ============================================================
 # 第 1 步：页面基础配置
 # ============================================================
@@ -66,8 +72,8 @@ st.set_page_config(
 # 第 2 步：会话状态初始化
 # ============================================================
 # st.session_state 是 Streamlit 用来跨页面刷新保存数据的字典。
-# 普通变量每次刷新都会重置，但 session_state 里的东西会一直保留，
-# 直到用户关掉浏览器标签页或我们手动清除。
+# 普通变量每次刷新都会重置；这里先放到 session_state，
+# 通过本地 SQLite 恢复最近几轮对话，关掉浏览器后也能找回。
 #
 # 这里初始化两个东西：
 #   messages: 对话历史，列表里的每个元素是 {"role": "...", "content": "..."}
@@ -77,12 +83,16 @@ if "messages" not in st.session_state:
     st.session_state.messages = []  # 对话历史，初始为空
 
 
+def _read_cookie(name: str) -> str | None:
+    try:
+        return st.context.cookies.get(name)
+    except Exception:
+        return None
+
+
 def remembered_access_ok() -> bool:
     """Return True when this browser has a valid remembered login cookie."""
-    try:
-        token = st.context.cookies.get(AUTH_COOKIE_NAME)
-    except Exception:
-        token = None
+    token = _read_cookie(AUTH_COOKIE_NAME)
     return validate_remember_token(token, ACCESS_CODE)
 
 
@@ -108,6 +118,51 @@ def write_auth_cookie_script(token: str | None, reload_page: bool = False):
 </script>
 """
     st.components.v1.html(html, height=0)
+
+
+def create_chat_session_id() -> str:
+    return uuid.uuid4().hex
+
+
+def is_valid_chat_session_id(session_id: str | None) -> bool:
+    return bool(session_id and CHAT_SESSION_ID_RE.fullmatch(str(session_id)))
+
+
+def write_chat_session_cookie_script(session_id: str, reload_page: bool = False):
+    """Persist the browser-local chat session id; this is not a secret."""
+    cookie_value = (
+        f"{CHAT_SESSION_COOKIE_NAME}={session_id}; "
+        f"Max-Age={CHAT_SESSION_COOKIE_MAX_AGE_SECONDS}; Path=/; SameSite=Lax"
+    )
+    reload_js = "window.parent.location.reload();" if reload_page else ""
+    html = f"""
+<script>
+(function() {{
+  const cookieValue = {json.dumps(cookie_value)};
+  try {{ document.cookie = cookieValue; }} catch (err) {{}}
+  try {{ window.parent.document.cookie = cookieValue; }} catch (err) {{}}
+  {reload_js}
+}})();
+</script>
+"""
+    st.components.v1.html(html, height=0)
+
+
+def get_or_create_chat_session_id() -> str:
+    """Return the browser's stable chat session id, creating one if needed."""
+    session_id = st.session_state.get("_chat_session_id")
+    if is_valid_chat_session_id(session_id):
+        return session_id
+
+    cookie_session_id = _read_cookie(CHAT_SESSION_COOKIE_NAME)
+    if is_valid_chat_session_id(cookie_session_id):
+        st.session_state._chat_session_id = cookie_session_id
+        return cookie_session_id
+
+    session_id = create_chat_session_id()
+    st.session_state._chat_session_id = session_id
+    write_chat_session_cookie_script(session_id)
+    return session_id
 
 
 def require_access_code():
@@ -148,13 +203,21 @@ def require_access_code():
 
 require_access_code()
 
-# 当前轮数直接从 messages 长度算，不用手动维护（避免时序 bug）
-current_round = len(st.session_state.messages) // 2
-
 # 最大保留轮数（一对问答算一轮）
 MAX_ROUNDS = 5
 # 换算成消息条数（一轮 = 用户 + 助手 = 2 条）
 MAX_MESSAGES = MAX_ROUNDS * 2
+
+chat_session_id = get_or_create_chat_session_id()
+if st.session_state.get("_chat_history_loaded_for") != chat_session_id:
+    st.session_state.messages = learning_db.get_chat_messages(
+        chat_session_id,
+        limit=MAX_MESSAGES,
+    )
+    st.session_state._chat_history_loaded_for = chat_session_id
+
+# 当前轮数直接从 messages 长度算，不用手动维护（避免时序 bug）
+current_round = len(st.session_state.messages) // 2
 
 
 # ============================================================
@@ -856,8 +919,12 @@ with st.sidebar:
 
     # 清空对话按钮
     if st.button("🆕 开始新对话", use_container_width=True):
+        new_chat_session_id = create_chat_session_id()
+        st.session_state._chat_session_id = new_chat_session_id
+        st.session_state._chat_history_loaded_for = new_chat_session_id
         st.session_state.messages = []
-        st.rerun()  # 立刻刷新页面，让改动生效
+        write_chat_session_cookie_script(new_chat_session_id, reload_page=True)
+        st.stop()
 
     if st.button("🔒 退出登录", use_container_width=True):
         st.session_state._access_ok = False
@@ -899,13 +966,24 @@ with st.sidebar:
     except Exception:
         st.caption("（学习记录数据库待初始化）")
 
-    # ---- 生成学情报告按钮 ----
+    # ---- 学情报告按钮 ----
     st.divider()
-    if st.button("📊 生成学情报告", use_container_width=True):
-        # 设置 pending 标记，在下次页面刷新时生成报告
-        # （不能在 button 回调里直接做耗时操作，会阻塞 UI）
-        st.session_state._pending_report = True
-        st.rerun()
+    has_report = bool(st.session_state.get("report_text"))
+    if has_report:
+        if st.button("📄 查看上次报告", use_container_width=True):
+            st.session_state.show_report = True
+            st.rerun()
+
+        if st.button("🔄 重新生成学情报告", use_container_width=True):
+            # 设置 pending 标记，在下次页面刷新时生成报告
+            # （不能在 button 回调里直接做耗时操作，会阻塞 UI）
+            st.session_state.show_report = False
+            st.session_state._pending_report = True
+            st.rerun()
+    else:
+        if st.button("📊 生成学情报告", use_container_width=True):
+            st.session_state._pending_report = True
+            st.rerun()
 
     st.divider()
     st.markdown("### 💡 试试这些")
@@ -988,6 +1066,15 @@ if raw_user_query := st.chat_input("在这里输入你的问题……"):
 
                 # 裁剪历史，防止过长
                 trim_history()
+
+                # ---- 持久化聊天正文：刷新/重开浏览器后可恢复最近对话 ----
+                learning_db.record_chat_messages(
+                    chat_session_id,
+                    [
+                        {"role": "user", "content": user_query},
+                        {"role": "assistant", "content": clean_answer},
+                    ],
+                )
 
                 # ---- 记录学习行为：候选、讲解、复习、提及分开存 ----
                 last_search = st.session_state.get("_last_search_structured", [])

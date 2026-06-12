@@ -11,7 +11,7 @@
   - 并发安全：多个请求同时写不会把文件写坏
   - 轻量：一个文件就是整个数据库
 
-表结构（只有一张表，够用）：
+核心表结构：
   learning_records
     ├── id           INTEGER PRIMARY KEY AUTOINCREMENT
     ├── question     TEXT    — 用户的问题
@@ -22,6 +22,13 @@
     ├── reviewed_poems  TEXT — 已学过、这次又展开复习的诗
     ├── mentioned_poems TEXT — 只是点名/对比/建议，未展开的诗
     ├── candidate_poems TEXT — 本轮检索候选，存档但不计入学习统计
+    └── created_at   TEXT    — ISO 8601 时间戳
+
+  chat_messages
+    ├── id           INTEGER PRIMARY KEY AUTOINCREMENT
+    ├── session_id   TEXT    — 浏览器会话 ID，不是密钥
+    ├── role         TEXT    — user/assistant
+    ├── content      TEXT    — 聊天消息正文
     └── created_at   TEXT    — ISO 8601 时间戳
 
 v2 改动：
@@ -35,10 +42,14 @@ v2 改动：
 v3 改动：
   - 候选诗、真正讲解/复习诗、仅提及诗分开存储。
   - “已学习古诗数”和主题统计只看真正讲解/复习的诗，不再把候选诗算作接触。
+
+v4 改动：
+  - 新增 chat_messages 表，按浏览器会话保存完整问答正文。
+  - 聊天正文只用于恢复最近对话，不参与“已学习古诗数”和主题统计。
 """
 
-import sqlite3
 import json
+import sqlite3
 from datetime import datetime
 from json import JSONDecodeError
 
@@ -54,6 +65,10 @@ JSON_COLUMNS = {
     "candidate_poems": "TEXT NOT NULL DEFAULT '[]'",
     "record_type": "TEXT NOT NULL DEFAULT 'no_match'",
 }
+
+CHAT_ROLES = {"user", "assistant"}
+MAX_CHAT_SESSION_ID_CHARS = 64
+MAX_CHAT_CONTENT_CHARS = 12000
 
 
 # ============================================================
@@ -110,6 +125,41 @@ def _ensure_columns(conn):
             conn.execute(f"ALTER TABLE learning_records ADD COLUMN {column} {definition}")
 
 
+def _ensure_chat_tables(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id_id
+        ON chat_messages (session_id, id)
+    """)
+
+
+def _normalize_chat_session_id(session_id: str) -> str:
+    session_id = str(session_id or "").strip()
+    if not session_id or len(session_id) > MAX_CHAT_SESSION_ID_CHARS:
+        raise ValueError("invalid chat session id")
+    return session_id
+
+
+def _normalize_chat_message(message: dict) -> tuple[str, str] | None:
+    role = str(message.get("role", "")).strip()
+    if role not in CHAT_ROLES:
+        return None
+
+    content = str(message.get("content", ""))
+    if not content.strip():
+        return None
+
+    return role, content[:MAX_CHAT_CONTENT_CHARS]
+
+
 def _row_poem_groups(row) -> dict:
     explained = _load_poem_data(row["explained_poems"]) if "explained_poems" in row.keys() else []
     reviewed = _load_poem_data(row["reviewed_poems"]) if "reviewed_poems" in row.keys() else []
@@ -160,8 +210,63 @@ def init_db():
         )
     """)
     _ensure_columns(conn)
+    _ensure_chat_tables(conn)
     conn.commit()
     conn.close()
+
+
+# ============================================================
+# 聊天消息持久化
+# ============================================================
+def record_chat_messages(session_id: str, messages: list[dict]):
+    """Append one or more chat messages for one browser session."""
+    session_id = _normalize_chat_session_id(session_id)
+    rows = []
+    for message in messages or []:
+        normalized = _normalize_chat_message(message)
+        if normalized:
+            role, content = normalized
+            rows.append((session_id, role, content, datetime.now().isoformat()))
+
+    if not rows:
+        return
+
+    init_db()
+    conn = _get_conn()
+    conn.executemany(
+        """
+        INSERT INTO chat_messages (session_id, role, content, created_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_chat_messages(session_id: str, limit: int = 10) -> list[dict]:
+    """Return the latest chat messages for one browser session, oldest first."""
+    session_id = _normalize_chat_session_id(session_id)
+    limit = max(1, min(int(limit or 10), 100))
+
+    init_db()
+    conn = _get_conn()
+    rows = conn.execute(
+        """
+        SELECT role, content
+        FROM chat_messages
+        WHERE session_id = ?
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (session_id, limit),
+    ).fetchall()
+    conn.close()
+
+    return [
+        {"role": row["role"], "content": row["content"]}
+        for row in reversed(rows)
+    ]
 
 
 # ============================================================
