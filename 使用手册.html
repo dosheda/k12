@@ -368,9 +368,10 @@
   <div class="step">
     <div class="step-num">2</div>
     <div>
-      <h4>设置 DeepSeek API Key（仅第一次需要）</h4>
-      <p>在终端里粘贴下面这行（把 <code>sk-你的key</code> 换成你自己的）：</p>
-      <pre><code>$env:DEEPSEEK_API_KEY = "sk-你的key"</code></pre>
+      <h4>设置 DeepSeek API Key 和访问口令（仅第一次需要）</h4>
+      <p>在终端里粘贴下面两行（把占位内容换成你自己的）：</p>
+      <pre><code>$env:DEEPSEEK_API_KEY = "你的 DeepSeek API Key"</code></pre>
+      <pre><code>$env:K12_HELPER_ACCESS_CODE = "你的访问口令"</code></pre>
       <div class="info">💡 这个 Key 去哪里弄？去 <a href="https://platform.deepseek.com" target="_blank">DeepSeek 开放平台</a> 注册一个账号，在「API Keys」页面创建一个就有了。</div>
     </div>
   </div>
@@ -379,8 +380,9 @@
     <div class="step-num">3</div>
     <div>
       <h4>启动程序</h4>
-      <p>在终端里输入下面这行命令，回车：</p>
-      <pre><code>python -m streamlit run "D:\k12 helper\app.py"</code></pre>
+      <p>先进入项目文件夹，再启动：</p>
+      <pre><code>cd "你的项目文件夹"
+python -m streamlit run app.py</code></pre>
       <p>稍等几秒（首次启动要加载模型），终端里出现一行地址后就成功了。</p>
     </div>
   </div>
@@ -400,12 +402,7 @@
   </div>
 
   <div class="tip">
-    <strong>💡 小技巧：</strong>如果觉得每次都要手打命令太麻烦，可以在 <code>D:\k12 helper\</code> 文件夹里新建一个文本文件，改名为 <code>启动.bat</code>，内容写：
-    <pre><code>@echo off
-set DEEPSEEK_API_KEY=sk-你的key
-python -m streamlit run "D:\k12 helper\app.py"
-pause</code></pre>
-    以后双击这个 <code>启动.bat</code> 就能一键启动了。
+    <strong>💡 小技巧：</strong>不要把 API Key 写进启动脚本。建议把 <code>DEEPSEEK_API_KEY</code> 和 <code>K12_HELPER_ACCESS_CODE</code> 设置为系统用户环境变量；启动脚本里只保留 <code>python -m streamlit run app.py</code> 这一类不含密钥的命令。
   </div>
 </section>
 
@@ -681,12 +678,12 @@ pause</code></pre>
 
   <div class="card purple">
     <h4>Q: 打开网页后显示「找不到向量库文件夹」？</h4>
-    <p>A: 说明 <code>chroma_db</code> 文件夹不在 <code>D:\k12 helper\</code> 目录下。请确认文件夹位置正确，或者重新运行一次 <code>build_rag_db.py</code>。</p>
+    <p>A: 说明项目目录下找不到 <code>chroma_db</code> 文件夹。请确认文件夹位置正确，或者重新运行一次 <code>build_rag_db.py</code>。</p>
   </div>
 
   <div class="card purple">
     <h4>Q: 回答问题时报错「API Key 无效」？</h4>
-    <p>A: 检查两件事：① 环境变量 <code>DEEPSEEK_API_KEY</code> 设置了没有（在终端输入 <code>$env:DEEPSEEK_API_KEY</code> 看返回值）；② Key 是不是从 DeepSeek 开放平台复制的完整版本。</p>
+    <p>A: 检查两件事：① 环境变量 <code>DEEPSEEK_API_KEY</code> 设置了没有（在终端输入 <code>$env:DEEPSEEK_API_KEY</code> 看返回值）；② Key 是不是从 DeepSeek 开放平台复制的完整版本。局域网访问还需要设置 <code>K12_HELPER_ACCESS_CODE</code>。</p>
   </div>
 
   <div class="card purple">
@@ -701,12 +698,12 @@ pause</code></pre>
 
   <div class="card purple">
     <h4>Q: 学情报告的数据存哪里了？会不会泄露？</h4>
-    <p>A: 所有学习记录都存在本地 <code>learning_records.db</code> 文件里（SQLite 数据库），<strong>不上传到任何云端服务器</strong>。只有生成报告时会把数据摘要发给 DeepSeek API，但 DeepSeek 不会存储这些数据（DeepSeek API 默认不记录请求内容）。</p>
+    <p>A: 学习记录存在本地 <code>learning_records.db</code> 文件里（SQLite 数据库）。普通提问和生成学情报告时，问题和必要摘要会发送给 DeepSeek API 生成回答；如果以后输入真实学生数据，请先确认隐私和数据保留要求。</p>
   </div>
 
   <div class="card purple">
     <h4>Q: 怎么清空学习记录重新开始？</h4>
-    <p>A: 直接删掉 <code>D:\k12 helper\learning_records.db</code> 文件即可。下次提问时会自动创建一个新的空数据库。</p>
+    <p>A: 退出程序后，删除项目目录下的 <code>learning_records.db</code> 文件即可。下次提问时会自动创建一个新的空数据库。</p>
   </div>
 
   <div class="card purple">

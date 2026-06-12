@@ -8,8 +8,9 @@ K12 古诗词 RAG 知识库 —— 建库脚本
 技术选型：用 Chroma 内置的 SentenceTransformerEmbeddingFunction，
         让 Chroma 自己管 embedding，避开版本兼容问题。
 """
-import os
 import sys
+from config import CHROMA_DB_PATH, POEM_1_80_PATH
+from safe_io import backup_directory
 
 # 修复 Windows 终端中文乱码
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -22,7 +23,7 @@ from chromadb.utils import embedding_functions
 # ============================================================
 # 第 1 步：读取 + 切分
 # ============================================================
-file_path = r"D:\k12 helper\古诗词1-80_整理版.txt"
+file_path = POEM_1_80_PATH
 
 with open(file_path, "r", encoding="utf-8") as f:
     content = f.read()
@@ -63,14 +64,14 @@ embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
     normalize_embeddings=True,
 )
 
-db_path = r"D:\k12 helper\chroma_db"
+db_path = CHROMA_DB_PATH
 
-# 清旧库
-if os.path.exists(db_path):
-    import shutil
-    shutil.rmtree(db_path)
+# 备份旧库，避免静默删除数据
+backup = backup_directory(db_path)
+if backup:
+    print(f"已备份旧向量库到：{backup}")
 
-client = chromadb.PersistentClient(path=db_path)
+client = chromadb.PersistentClient(path=str(db_path))
 
 # 创建 collection，绑定 embedding function
 # Chroma 会在 add/query 时自动调 embedding_fn 来向量化

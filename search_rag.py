@@ -8,6 +8,7 @@ K12 古诗词 RAG 知识库 —— 检索测试脚本
 """
 import sys
 import os
+from config import CHROMA_DB_PATH, MAX_USER_QUERY_CHARS
 
 # 修复 Windows 终端中文乱码
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -27,14 +28,14 @@ embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
     normalize_embeddings=True,
 )
 
-db_path = r"D:\k12 helper\chroma_db"
+db_path = CHROMA_DB_PATH
 
 if not os.path.exists(db_path):
-    print(f"[错误] 找不到向量库文件夹：{db_path}")
+    print("[错误] 找不到向量库文件夹。")
     print("请先运行 build_rag_db.py 建库！")
     sys.exit(1)
 
-client = chromadb.PersistentClient(path=db_path)
+client = chromadb.PersistentClient(path=str(db_path))
 collection = client.get_collection(
     name="poems",
     embedding_function=embedding_fn,
@@ -62,6 +63,9 @@ while True:
 
     if not query:
         continue
+    if len(query) > MAX_USER_QUERY_CHARS:
+        print(f"[错误] 问题太长，请控制在 {MAX_USER_QUERY_CHARS} 个字符以内。")
+        continue
 
     # ----- 检索 -----
     # query_texts: 直接传文字！Chroma 用 embedding_fn 自动转成向量
@@ -79,15 +83,16 @@ while True:
     print(f'  检索结果："{query}"')
     print("=" * 60)
 
-    ids_list = results["ids"][0]
-    docs_list = results["documents"][0]
-    metas_list = results["metadatas"][0]
-    dists_list = results["distances"][0]
+    ids_list = (results.get("ids") or [[]])[0]
+    docs_list = (results.get("documents") or [[]])[0]
+    metas_list = (results.get("metadatas") or [[]])[0]
+    dists_list = (results.get("distances") or [[]])[0]
 
     for i in range(len(ids_list)):
-        title = metas_list[i]["title"]
-        distance = dists_list[i]
-        content = docs_list[i]
+        meta = metas_list[i] if i < len(metas_list) and isinstance(metas_list[i], dict) else {}
+        title = meta.get("title", "")
+        distance = dists_list[i] if i < len(dists_list) else 0
+        content = docs_list[i] if i < len(docs_list) else ""
 
         print(f"\n{'─' * 40}")
         print(f"  第 {i+1} 首 | {title}")

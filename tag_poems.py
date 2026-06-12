@@ -21,14 +21,17 @@ import time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from openai import OpenAI
+from api_utils import classify_api_error, extract_chat_content
+from config import DEEPSEEK_API_KEY_ENV, POEM_1_80_PATH, POEM_TAGS_PATH
+from safe_io import atomic_write_text
 
 # ============================================================
 # 环境准备
 # ============================================================
 
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+DEEPSEEK_API_KEY = os.environ.get(DEEPSEEK_API_KEY_ENV)
 if not DEEPSEEK_API_KEY:
-    print("[错误] 找不到环境变量 DEEPSEEK_API_KEY")
+    print(f"[错误] 找不到环境变量 {DEEPSEEK_API_KEY_ENV}")
     sys.exit(1)
 
 deepseek = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
@@ -123,7 +126,7 @@ def tag_poems_batch(poems_batch, batch_num):
                 stream=False,
                 temperature=0.2,  # 低温度，让输出稳定
             )
-            result_text = response.choices[0].message.content
+            result_text = extract_chat_content(response)
 
             # 清理掉可能的 markdown 代码块标记
             result_text = result_text.strip()
@@ -149,7 +152,7 @@ def tag_poems_batch(poems_batch, batch_num):
                 print(f"  重试第 {attempt+1} 次……")
                 time.sleep(2)
         except Exception as e:
-            print(f"  批次 {batch_num}：× API 调用失败：{e}")
+            print(f"  批次 {batch_num}：× API 调用失败：{classify_api_error(e)}")
             if attempt < max_retries - 1:
                 print(f"  重试第 {attempt+1} 次……")
                 time.sleep(5)
@@ -163,8 +166,8 @@ def tag_poems_batch(poems_batch, batch_num):
 # ============================================================
 
 def main():
-    input_path = r"D:\k12 helper\古诗词1-80_整理版.txt"
-    output_path = r"D:\k12 helper\诗名-标签对照表.txt"
+    input_path = POEM_1_80_PATH
+    output_path = POEM_TAGS_PATH
 
     poems = load_poems(input_path)
     print(f"读取完成，共 {len(poems)} 首诗\n")
@@ -186,19 +189,23 @@ def main():
 
     # 写入文件
     print(f"正在写入标签对照表到：{output_path}")
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("K12 古诗词 80 首 —— 诗名-标签对照表（DeepSeek 生成）\n")
-        f.write("=" * 60 + "\n")
-        f.write("每个标签包含近义说法（顿号分隔），确保不同问法都能命中。\n")
-        f.write("=" * 60 + "\n\n")
-
-        for entry in all_tags:
-            f.write(f"【{entry.get('title', '?')}】 {entry.get('author', '?')} {entry.get('dynasty', '?')}\n")
-            f.write(f"  题材类型：{entry.get('题材类型', '（无）')}\n")
-            f.write(f"  表达情感：{entry.get('表达情感', '（无）')}\n")
-            f.write(f"  表现手法：{entry.get('表现手法', '（无）')}\n")
-            f.write(f"  关键意象：{entry.get('关键意象', '（无）')}\n")
-            f.write("\n")
+    lines = [
+        "K12 古诗词 80 首 —— 诗名-标签对照表（DeepSeek 生成）",
+        "=" * 60,
+        "每个标签包含近义说法（顿号分隔），确保不同问法都能命中。",
+        "=" * 60,
+        "",
+    ]
+    for entry in all_tags:
+        lines.append(f"【{entry.get('title', '?')}】 {entry.get('author', '?')} {entry.get('dynasty', '?')}")
+        lines.append(f"  题材类型：{entry.get('题材类型', '（无）')}")
+        lines.append(f"  表达情感：{entry.get('表达情感', '（无）')}")
+        lines.append(f"  表现手法：{entry.get('表现手法', '（无）')}")
+        lines.append(f"  关键意象：{entry.get('关键意象', '（无）')}")
+        lines.append("")
+    backup = atomic_write_text(output_path, "\n".join(lines), encoding="utf-8")
+    if backup:
+        print(f"已备份旧标签文件到：{backup}")
 
     print(f"标签对照表已保存到：{output_path}")
 

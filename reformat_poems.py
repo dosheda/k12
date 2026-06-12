@@ -18,6 +18,8 @@
 
 import re
 import os
+from config import POEM_1_80_PATH
+from safe_io import atomic_write_text
 
 # ============================================================
 # 已知诗人→朝代映射（小学常见诗人）
@@ -194,7 +196,7 @@ def reformat_poem(raw_text):
 # ============================================================
 
 def main():
-    input_path = r"D:\k12 helper\古诗词1-80_整理版.txt"
+    input_path = POEM_1_80_PATH
 
     with open(input_path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -209,12 +211,11 @@ def main():
         clean = reformat_poem(p)
         clean_poems.append(clean)
 
-    # 写回同一个文件
-    with open(input_path, "w", encoding="utf-8") as f:
-        for i, p in enumerate(clean_poems):
-            f.write(p)
-            if i < len(clean_poems) - 1:
-                f.write("\n\n=====\n\n")
+    # 写回同一个文件：先备份，再原子替换
+    output_text = "\n\n=====\n\n".join(clean_poems)
+    backup = atomic_write_text(input_path, output_text, encoding="utf-8")
+    if backup:
+        print(f"已备份原文件到：{backup}")
 
     print(f"整理完成，输出 {len(clean_poems)} 首")
     print(f"文件：{input_path}")

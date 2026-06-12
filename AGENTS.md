@@ -24,12 +24,13 @@
   - 为什么选它：当前代码已经用 Python 完成数据处理、SQLite、Chroma 和 DeepSeek 调用；Streamlit 能快速提供本地/局域网页面，适合这个单机学习助手阶段。
 - 模型/API：DeepSeek API，通过 OpenAI SDK 兼容接口调用。
   - API key 必须来自系统环境变量 `DEEPSEEK_API_KEY`，不要写入代码、`.bat`、文档示例或可提交文件。
+  - 局域网访问口令必须来自系统环境变量 `K12_HELPER_ACCESS_CODE`。
 - 向量数据库：ChromaDB，本项目当前只允许本地 `PersistentClient` 方式，直接读写本地 `chroma_db/`。
   - 已确认：不以 Chroma HTTP server 方式运行，不开放 Chroma 网络端口。
 - Embedding：`BAAI/bge-small-zh-v1.5`，通过 Chroma embedding function 加载。
 - 数据库：SQLite，本地保存学习记录。
 - OCR：Tesseract + Pillow，用于命令行图片题识别。
-- 依赖管理：当前 `requirements.txt` 未锁版本，这是待修问题；在修复前不要随意升级或新增重型依赖。
+- 依赖管理：`requirements.txt` 已固定当前直接依赖版本；`chromadb==1.5.9` 仍命中已知 CVE，但截至 2026-06-13 未查到更高修复版，当前仅允许本地 `PersistentClient` 使用来降低暴露面。
 - 约定：未经用户同意，不要更换框架，不要引入新的重型依赖，不要把本地 Chroma 改成 HTTP server 架构。
 
 ---
@@ -39,7 +40,7 @@
 - 遵循项目现有风格和结构，不要擅自重构既有代码。
 - 函数和变量命名要清晰，关键逻辑写简短注释。
 - 涉及路径、数据库、API 调用、局域网访问、学习记录、依赖升级时，先看 `AUDIT_REPORT.md` 和 `PROGRESS.md` 的已知问题。
-- 当前有多处硬编码绝对路径，这是已知问题；修复时优先改为基于项目根目录或配置的路径。
+- 当前路径已集中到 `config.py`，默认基于项目根目录；新增路径配置时继续走 `config.py` 或环境变量，不要重新写死本机绝对路径。
 - 当前根目录混有源码、脚本、数据和运行时文件；整理结构前先征得用户同意。
 
 ---

@@ -31,11 +31,13 @@ v2 改动：
 
 import sqlite3
 import json
-import os
 from datetime import datetime
+from json import JSONDecodeError
+
+from config import LEARNING_DB_PATH, MAX_USER_QUERY_CHARS
 
 # 数据库文件路径（和 app.py 在同一目录）
-DB_PATH = r"D:\k12 helper\learning_records.db"
+DB_PATH = LEARNING_DB_PATH
 
 
 # ============================================================
@@ -47,9 +49,35 @@ def _get_conn():
     - 自动创建数据库文件（如果还不存在）
     - row_factory = sqlite3.Row：让查询结果可以用 ["字段名"] 取值
     """
-    conn = sqlite3.connect(DB_PATH)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH), timeout=10)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _load_poem_data(raw_text: str) -> list:
+    """Parse poem_data JSON defensively; bad records are ignored by callers."""
+    try:
+        data = json.loads(raw_text)
+    except (TypeError, JSONDecodeError):
+        return []
+    if not isinstance(data, list):
+        return []
+
+    cleaned = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title", "")).strip()
+        tags = item.get("tags", [])
+        if isinstance(tags, str):
+            tags = [t.strip() for t in tags.split("、") if t.strip()]
+        elif isinstance(tags, list):
+            tags = [str(t).strip() for t in tags if str(t).strip()]
+        else:
+            tags = []
+        cleaned.append({"title": title, "tags": tags})
+    return cleaned
 
 
 # ============================================================
@@ -94,7 +122,7 @@ def record_learning(question: str, poem_data: list):
     conn.execute(
         "INSERT INTO learning_records (question, poem_data, tags, created_at) VALUES (?, ?, ?, ?)",
         (
-            question,
+            question[:MAX_USER_QUERY_CHARS],
             json.dumps(poem_data, ensure_ascii=False),  # 结构化诗数据 → JSON
             "",  # tags 列已弃用，留空
             datetime.now().isoformat(),
@@ -139,7 +167,7 @@ def get_stats() -> dict:
     all_poems = set()  # 去重诗名集合
 
     for row in rows:
-        poems = json.loads(row["poem_data"])  # [{title, tags: [...]}, ...]
+        poems = _load_poem_data(row["poem_data"])  # [{title, tags: [...]}, ...]
 
         for poem in poems:
             title = poem.get("title", "")
@@ -191,7 +219,7 @@ def get_all_records() -> list:
 
     records = []
     for row in rows:
-        poem_data = json.loads(row["poem_data"])
+        poem_data = _load_poem_data(row["poem_data"])
         # poem_data 是 [{title, tags: [...]}, ...]
         records.append({
             "question": row["question"],

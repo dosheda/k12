@@ -8,99 +8,115 @@
 ---
 
 ## 当前整体状态
-核心功能已经有可运行代码：Streamlit 古诗词 RAG 讲解助手、本地 Chroma 向量库、本地 SQLite 学习记录、DeepSeek API 讲解/学情报告，以及若干命令行数据处理脚本。
 
-当前阶段是安全与质量整改前的整理阶段：已完成全面审计、文档规则补全、git 初始化、首个远端推送和初始 release；代码层面的 P1/P2 问题还没有修复。
+核心功能已有可运行代码：Streamlit 古诗词 RAG 讲解助手、本地 Chroma 向量库、本地 SQLite 学习记录、DeepSeek API 讲解/学情报告，以及若干命令行数据处理脚本。
+
+本轮已完成审计后的 P0/P1/P2 集中整改：局域网访问增加口令保护，API 调用增加输入长度和冷却限制，硬编码路径集中到 `config.py`，破坏性脚本改为备份/原子写入，DB/Chroma/API/OCR 的主要崩溃点增加保护，文档移除明文 key 启动脚本建议，直接依赖已固定版本。当前准备提交、推送并发布新版 `v0.2.0`。
 
 ---
 
 ## 已完成
+
 - 【2026-06-13】完成 `AUDIT_REPORT.md` 安全与质量审计报告，覆盖安全、稳定性、可维护性、测试/文档缺口和修复优先级。
-- 【2026-06-13】确认 Chroma 只使用本地 `PersistentClient`，数据在本地 `chroma_db/`，没有以 HTTP server 运行，也不开网络端口；原先疑似 P0 的 Chroma 远程攻击面降级为 P2 依赖治理风险。
+- 【2026-06-13】确认 Chroma 只使用本地 `PersistentClient`，数据在本地 `chroma_db/`，没有以 HTTP server 运行，也不开网络端口；原疑似 P0 降级为 P2 依赖治理风险。
 - 【2026-06-13】确认项目可以给同一局域网用户访问，因此 Streamlit 无鉴权按 P1 风险处理。
-- 【2026-06-13】确认当前项目尚未初始化 git；当前无 git 历史可审计，初始化 git 前必须先补 `.gitignore`。
-- 【2026-06-13】确认学习记录当前为模拟数据；真实学生数据接入前必须补隐私提示和数据管理策略。
-- 【2026-06-13】确认 API key 已写入系统环境变量；`.bat` 明文写 key 的文档示例属于多余且不推荐。
-- 【2026-06-13】补全 `AGENTS.md`：项目概述、技术栈、长期约定和安全红线。
-- 【2026-06-13】补全 `PROGRESS.md`：当前状态、已完成事项、未修问题和下一步计划。
-- 【2026-06-13】新增 `.gitignore`，过滤 `learning_records.db`、`chroma_db/`、`__pycache__/`、`.env*`、真实启动脚本和凭证类文件。
+- 【2026-06-13】确认当前学习记录是模拟数据；真实学生数据接入前必须补隐私提示和数据管理策略。
+- 【2026-06-13】补全 `AGENTS.md` 和 `PROGRESS.md`，沉淀长期规则、安全红线和当前进展。
+- 【2026-06-13】新增 `.gitignore`，过滤 `learning_records.db`、`chroma_db/`、`__pycache__/`、`.env*`、真实启动脚本、备份文件和凭证类文件。
 - 【2026-06-13】初始化 git 仓库，提交初始项目快照，并推送到私有仓库 `dosheda/k12` 的 `main` 分支。
 - 【2026-06-13】创建 GitHub Release `v0.1.0`。
+- 【2026-06-13】完成审计后 P0/P1/P2 整改，准备发布 `v0.2.0`。
 
 ---
 
 ## 刚才修复 / 确认的 P0/P1
-- P0：没有修复代码层 P0。经用户确认，Chroma 不以 HTTP server 方式运行、不开放端口，因此原疑似 P0 不再作为当前暴露风险，已在审计报告中降级为 P2 依赖治理风险。
-- P1：没有修复代码层 P1。本次只完成文档补全和风险确认；P1 代码问题仍列在“已知问题 / 技术债”中。
+
+- P0：当前没有已确认未修 P0。Chroma 未以 HTTP server 方式运行、不开放端口，当前无对应远程 HTTP 攻击面；风险保留为 P2 依赖治理。
+- P1：已给局域网访问增加最小口令保护，口令来自 `K12_HELPER_ACCESS_CODE`，未配置时 Streamlit 会停止继续使用。位置：`app.py:73`、`config.py:25`。
+- P1：已给聊天 API 调用增加输入长度限制和单会话冷却限制，降低局域网滥用和成本风险。位置：`app.py:540`、`config.py:28-29`。
+- P1：已把硬编码项目路径集中到 `config.py`，默认使用项目根目录，可通过环境变量覆盖数据路径。位置：`config.py:7-21`。
+- P1：已把会删除/覆盖数据的脚本改为先备份或原子替换。位置：`safe_io.py:29`、`safe_io.py:38`、`build_rag_db.py:70`、`reformat_poems.py:216`、`merge_all_poems.py:119`、`merge_80_poems.py:150`、`tag_poems.py:206`。
+- P1：已给学习记录 JSON 解析增加容错，坏记录不会直接拖垮统计/报告。位置：`learning_db.py:58`、`learning_db.py:138`、`learning_db.py:200`。
+- P1：已给 Chroma 查询空结果、缺字段、记录数不足等情况增加保护。位置：`app.py:140`、`rag_chat.py:51`、`search_rag.py:38`、`update_chroma_tags.py:60`。
+
+---
+
+## 本轮已修复的 P2
+
+- 【P2】API 响应结构不稳定导致崩溃：新增 `api_utils.extract_chat_content()` 统一校验。位置：`api_utils.py:4`。
+- 【P2】原始错误信息暴露给用户：新增 `api_utils.classify_api_error()`，UI/CLI 输出安全文案。位置：`api_utils.py:16`、`app.py:955`、`k12_helper.py:248`、`rag_chat.py:357`。
+- 【P2】用户输入、报告 prompt 和 API 成本无上限：增加单次问题长度、冷却时间、报告记录数和 prompt 长度限制。位置：`config.py:28-32`、`app.py:540`、`app.py:599`。
+- 【P2】使用手册建议 `.bat` 明文保存 API key：已改为系统环境变量和不含密钥的启动脚本建议。位置：`使用手册.html:371-405`。
+- 【P2】模型 taught 标记解析脆弱：已支持中文逗号、顿号、分号和多行格式。位置：`app.py:508`。
+- 【P2】OCR 图片无大小/像素限制：已增加文件大小和像素上限。位置：`k12_helper.py:139`、`k12_helper.py:156`。
+- 【P2】依赖未固定且含疑似未用 LangChain 依赖：已固定直接依赖版本，并移除未发现 import 的 `langchain*` 依赖。位置：`requirements.txt:1-6`。
+- 【P2】学习数据第三方 API 流向说明不足：使用手册已改为说明普通提问和学情报告会把问题/必要摘要发送给 DeepSeek。位置：`使用手册.html:701`。
 
 ---
 
 ## 正在做（当前任务）
-- 任务：安全审计后的项目长期规则和进展文档补全。
-- 进展到哪：`AGENTS.md` 和 `PROGRESS.md` 已按当前代码和 `AUDIT_REPORT.md` 填好。
-- 相关文件：`AGENTS.md`、`PROGRESS.md`、`AUDIT_REPORT.md`。
-- 卡点/待决定：下一步先修哪个 P1 需要用户决定。
+
+- 任务：完成审计后 P0/P1/P2 整改，提交、推送并发布新版。
+- 进展到哪：代码和文档已完成整改，正在做检查、提交、推送和 release。
+- 相关文件：`config.py`、`api_utils.py`、`safe_io.py`、`app.py`、`learning_db.py`、`k12_helper.py`、`rag_chat.py`、`search_rag.py`、数据处理脚本、`requirements.txt`、`使用手册.html`、`AGENTS.md`、`AUDIT_REPORT.md`、`PROGRESS.md`。
+- 卡点/待决定：无阻塞。`chromadb==1.5.9` 截至 2026-06-13 未查到更高修复版，只能先保留本地-only 红线并持续关注升级。
 
 ---
 
 ## 下一步计划
-1. 先修 P1：给局域网访问增加最小鉴权、API 调用限流和输入长度限制。
-2. 先修 P1：把硬编码绝对路径改成项目根目录相对路径或统一配置。
-3. 继续修 P1：给会删除/覆盖数据的脚本加备份、确认或 `--force`。
-4. 修 P2：升级并锁定 `chromadb` 和直接依赖版本，清理疑似未使用依赖。
-5. 补基础工程：README、测试目录、运行说明、隐私说明和配置示例。
+
+1. 跑语法检查、轻量行为检查、Bandit 扫描、密钥/硬编码路径扫描。
+2. 用本地 Streamlit smoke test 验证访问口令页和应用能启动。
+3. 提交本轮修复，推送到 `main`。
+4. 创建 GitHub Release `v0.2.0`。
 
 ---
 
 ## 已知问题 / 技术债
 
 ### P0
-- 当前没有已知未修 P0。Chroma CVE 已确认当前无 HTTP server 攻击面，但依赖仍需按 P2 处理。
+
+- 当前没有已知未修 P0。
 
 ### P1
-- 【P1】Streamlit 无鉴权，且项目确认会给同一局域网用户访问；同网用户可能调用 DeepSeek API、产生成本并写入学习记录。位置：`app.py:803-817`、`使用手册.html:718-719`。
-- 【P1】当前工作区 `D:\k12 helper codex` 与代码硬编码路径 `D:\k12 helper\...` 不一致，可能读取或写入错误目录。位置：`app.py:88`、`app.py:195`、`learning_db.py:38`、`rag_chat.py:42`、`rag_chat.py:134`。
-- 【P1】多个脚本会删除或覆盖数据，没有确认、备份或原子写入。位置：`build_rag_db.py:66-71`、`reformat_poems.py:197-217`、`merge_all_poems.py:109-114`、`merge_80_poems.py:140-145`、`tag_poems.py:187-203`、`update_chroma_tags.py:88-93`。
-- 【P1】SQLite 中 `poem_data` JSON 损坏或旧格式不兼容时，统计/学情报告可能崩溃。位置：`learning_db.py:141-154`、`learning_db.py:193-199`、`app.py:523-524`。
-- 【P1】Chroma 查询结果和 metadata 结构被假定永远完整，空结果、缺字段、记录数不足时可能崩溃或错配标签。位置：`app.py:202-212`、`app.py:326-343`、`rag_chat.py:141-151`、`rag_chat.py:216-230`、`search_rag.py:82-90`、`update_chroma_tags.py:102-106`。
+
+- 当前没有已知未修 P1。若后续接入真实学生/家长数据、开放公网访问、或把 Chroma 改成 HTTP server，必须重新审计并可能产生新的 P1/P0。
 
 ### P2
-- 【P2，真实数据前升 P1】`learning_records.db` 位于项目目录，当前是模拟数据；已通过 `.gitignore` 避免提交，但后续接入真实学生数据前仍必须迁移或明确保护。位置：`learning_db.py:38`、`learning_records.db`。
-- 【P2】学习数据会发送给 DeepSeek；当前为模拟数据，真实使用前缺少隐私提示、第三方 API 数据流说明和政策链接。位置：`app.py:550-583`、`使用手册.html:703-704`。
-- 【P2】未知错误会把原始错误信息展示给用户，可能暴露本机路径、请求细节或内部状态。位置：`app.py:591-603`、`app.py:858-880`、`k12_helper.py:186-187`、`rag_chat.py:345-369`。
-- 【P2】用户输入、报告生成和 API 成本没有上限控制。位置：`app.py:803-817`、`app.py:409-425`、`app.py:550-569`。
-- 【P2】当前环境 `chromadb==1.5.9` 命中 `CVE-2026-45829`；当前本地 `PersistentClient` 用法不暴露 HTTP 攻击面，但依赖仍应升级并锁版本。位置：`requirements.txt:7`。
-- 【P2】使用手册建议在 `.bat` 中明文保存 API key，与当前系统环境变量做法冲突且不推荐。位置：`使用手册.html:402-407`。
-- 【P2】API 响应结构被假定一定有 `choices[0].message.content`，空响应或 SDK 变化时可能崩溃。位置：`app.py:438`、`app.py:586`、`k12_helper.py:214`、`rag_chat.py:326`、`tag_poems.py:126`。
-- 【P2】模型讲解诗名标记解析脆弱，可能导致学习记录漏记。位置：`app.py:421-423`、`app.py:455-467`、`app.py:837-852`。
-- 【P2】学情报告 prompt 随历史记录无界增长，可能超 token、变慢或增加成本。位置：`app.py:550-569`。
-- 【P2】OCR 图片路径输入缺少文件大小、像素数量和处理超时限制。位置：`k12_helper.py:119-147`。
-- 【P2】RAG 检索逻辑在 `app.py` 和 `rag_chat.py` 重复，后续修 bug 容易漏改。位置：`app.py:216-389`、`rag_chat.py:155-260`。
-- 【P2】错误处理逻辑重复且靠字符串匹配，SDK 或服务端文案变化时容易误判。位置：`app.py:858-880`、`k12_helper.py:230-268`、`rag_chat.py:345-371`。
-- 【P2】`app.py` 过长且职责混杂，检索、API、报告、TTS、UI 和状态管理都在一个文件里。位置：`app.py:287-880`。
-- 【P2】`requirements.txt` 未锁版本，且 `langchain`、`langchain-chroma`、`langchain-community` 在源码中未发现 import，疑似未使用依赖。位置：`requirements.txt:1-8`。
+
+- 【P2】`chromadb==1.5.9` 命中 `CVE-2026-45829`；截至 2026-06-13 `pip index versions chromadb` 未查到高于 `1.5.9` 的修复版。当前缓解措施是只允许本地 `PersistentClient`，不运行 Chroma HTTP server、不开放端口。位置：`requirements.txt:5`、`AGENTS.md:51`。
+- 【P2，真实数据前升 P1】`learning_records.db` 默认仍在项目数据目录；已通过 `.gitignore` 排除并可用 `K12_LEARNING_DB_PATH` 覆盖，但真实学生数据接入前仍需要正式的数据位置、清空、备份和保留策略。位置：`config.py:15`、`learning_db.py:53`。
+- 【P2，真实数据前升 P1】学习数据会发送给 DeepSeek；使用手册已有基本提示，但真实使用前还缺正式隐私说明、第三方 API 数据流确认和用户同意流程。位置：`app.py:599`、`使用手册.html:701`。
+- 【P2】RAG 检索逻辑仍在 `app.py` 和 `rag_chat.py` 两处存在重复，后续应抽到共享模块。位置：`app.py:250-477`、`rag_chat.py:155-282`。
+- 【P2】`app.py` 仍偏长，检索、API、报告、TTS、UI 和状态管理混在一个文件；本轮为控制风险未做大拆分。位置：`app.py:250-955`。
+- 【P2】错误分类已集中到 `api_utils.py`，但仍主要依赖错误文本/状态码字符串判断；后续可按 OpenAI SDK 异常类型细化。位置：`api_utils.py:16`。
+- 【P2】依赖已固定直接版本，但还没有 lock 文件、hash 校验或自动漏洞扫描流程。位置：`requirements.txt:1-6`。
 
 ### P3
-- 【P3】项目根目录混放源码、一次性脚本、数据文件、运行时数据库、向量库和样例图片，结构不清晰。
-- 【P3】缺少 `README.md`，当前只有 `使用手册.html`，没有面向开发者的安装、运行、配置、数据目录和隐私说明。
-- 【P3】缺少自动化测试目录和 pytest/unittest 用例；现有 `test_question.png`、`test_triangle.png` 只是样例图片。
+
+- 【P3】缺少 `README.md`，当前主要说明仍在 `使用手册.html`。
+- 【P3】缺少自动化测试目录和 pytest/unittest 用例；本轮只做了语法、静态扫描和轻量 smoke test。
 - 【P3】缺少 CI、格式化、静态检查配置和 `.env.example` 或配置示例。
-- 【P3】缺少数据库备份、迁移、清空学习记录的正式机制说明。
+- 【P3】项目根目录仍混放源码、一次性脚本、数据文件、运行时数据库、向量库和样例图片；后续可整理为 `src/`、`scripts/`、`data/`、`docs/`、`tests/`。
+- 【P3】缺少数据库备份、迁移、清空学习记录的正式工具和 README 说明。
 
 ---
 
 ## 重要决策记录
+
 - 【2026-06-13】决定当前技术栈继续沿用 Python + Streamlit + Chroma 本地 `PersistentClient` + SQLite + DeepSeek API；原因是代码已按该方式实现，且适合本地/局域网学习助手。
 - 【2026-06-13】决定 Chroma 不以 HTTP server 方式运行，不开放网络端口；如未来要启用 Chroma server，必须先做安全审查和依赖升级。
 - 【2026-06-13】决定 API key 只使用系统环境变量 `DEEPSEEK_API_KEY`；不再推荐 `.bat` 明文写 key。
+- 【2026-06-13】决定局域网访问必须配置 `K12_HELPER_ACCESS_CODE`，不能默认裸奔。
 - 【2026-06-13】确认当前学习记录是模拟数据；如果以后接入真实学生数据，隐私提示和数据管理策略必须先补齐。
 - 【2026-06-13】已初始化 git 并推送到私有仓库 `dosheda/k12`；初始化前已补 `.gitignore`，避免运行时数据和密钥误提交。
 
 ---
 
 ## 给下一个对话的备注
+
 - 开始任务前先读 `AGENTS.md`、`PROGRESS.md`、`AUDIT_REPORT.md`。
-- 目前没有代码层 P1 已修复；优先从局域网访问鉴权、硬编码路径、数据覆盖保护开始。
 - 不要把 Chroma 改成 HTTP server；当前只允许本地 `PersistentClient`。
-- 不要把 API key 写入 `.bat`、`.env` 或文档真实示例。
-- 当前仓库远端是 `https://github.com/dosheda/k12.git`，默认分支 `main`，初始 release 为 `v0.1.0`。
+- 不要把 API key 或访问口令写入 `.bat`、`.env`、说明文档真实示例或任何会提交的文件。
+- 新增路径请放进 `config.py` 或环境变量，不要重新写本机绝对路径。
+- 当前仓库远端是 `https://github.com/dosheda/k12.git`，默认分支 `main`，已有 release `v0.1.0`，本轮准备发布 `v0.2.0`。

@@ -10,6 +10,8 @@ K12 古诗词 RAG 讲解助手 —— RAG 闭环脚本
 
 import os
 import sys
+from api_utils import classify_api_error, extract_chat_content
+from config import CHROMA_DB_PATH, DEEPSEEK_API_KEY_ENV, MAX_USER_QUERY_CHARS, POEM_1_80_PATH
 
 # ============================================================
 # 修复 Windows 终端中文乱码
@@ -39,14 +41,14 @@ embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
     normalize_embeddings=True,
 )
 
-db_path = r"D:\k12 helper\chroma_db"
+db_path = CHROMA_DB_PATH
 
 if not os.path.exists(db_path):
-    print(f"[错误] 找不到向量库文件夹：{db_path}")
+    print("[错误] 找不到向量库文件夹。")
     print("请先运行 build_rag_db.py 建库！")
     sys.exit(1)
 
-chroma_client = chromadb.PersistentClient(path=db_path)
+chroma_client = chromadb.PersistentClient(path=str(db_path))
 collection = chroma_client.get_collection(
     name="poems",
     embedding_function=embedding_fn,
@@ -58,10 +60,10 @@ print(f"向量库就绪，共 {collection.count()} 首诗。\n")
 # ============================================================
 # 第 2 步：加载 DeepSeek API 客户端
 # ============================================================
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+DEEPSEEK_API_KEY = os.environ.get(DEEPSEEK_API_KEY_ENV)
 
 if DEEPSEEK_API_KEY is None:
-    print("[错误] 找不到环境变量 DEEPSEEK_API_KEY")
+    print(f"[错误] 找不到环境变量 {DEEPSEEK_API_KEY_ENV}")
     print("请先设置：")
     print("  Windows PowerShell: $env:DEEPSEEK_API_KEY='sk-你的key'")
     sys.exit(1)
@@ -131,7 +133,7 @@ def load_poem_data():
     加载全部 80 首诗的全文和标签。
     从知识库文件读全文，从 Chroma metadata 读标签。
     """
-    file_path = r"D:\k12 helper\古诗词1-80_整理版.txt"
+    file_path = POEM_1_80_PATH
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
     poems = [c.strip() for c in content.split("=====") if c.strip()]
@@ -139,15 +141,16 @@ def load_poem_data():
     # 从 Chroma 拿 metadata（含 tags 字段）
     global collection
     all_meta = collection.get(include=["metadatas"])
+    metadatas = all_meta.get("metadatas") or []
 
     poem_list = []
     for i in range(len(poems)):
-        meta = all_meta["metadatas"][i] if i < len(all_meta["metadatas"]) else {}
+        meta = metadatas[i] if i < len(metadatas) and isinstance(metadatas[i], dict) else {}
         poem_list.append({
             "id": f"poem_{i:02d}",
-            "title": meta.get("title", ""),
+            "title": str(meta.get("title", "") or ""),
             "text": poems[i],
-            "tags": meta.get("tags", ""),
+            "tags": str(meta.get("tags", "") or ""),
         })
     return poem_list
 
@@ -213,20 +216,23 @@ def rag_search_hybrid(query: str) -> str:
     # ---- 合并 & 去重 ----
     candidates = {}
 
-    ids_list = semantic_results["ids"][0]
-    docs_list = semantic_results["documents"][0]
-    metas_list = semantic_results["metadatas"][0]
-    distances = semantic_results["distances"][0]
+    ids_list = (semantic_results.get("ids") or [[]])[0]
+    docs_list = (semantic_results.get("documents") or [[]])[0]
+    metas_list = (semantic_results.get("metadatas") or [[]])[0]
+    distances = (semantic_results.get("distances") or [[]])[0]
 
     max_dist = max(distances) if distances else 1.0
     min_dist = min(distances) if distances else 0.0
 
     for i in range(len(ids_list)):
         pid = ids_list[i]
-        raw_sem = 1.0 - (distances[i] - min_dist) / (max_dist - min_dist + 0.001)
+        meta = metas_list[i] if i < len(metas_list) and isinstance(metas_list[i], dict) else {}
+        content = docs_list[i] if i < len(docs_list) else ""
+        distance = distances[i] if i < len(distances) else max_dist
+        raw_sem = 1.0 - (distance - min_dist) / (max_dist - min_dist + 0.001)
         candidates[pid] = {
-            "title": metas_list[i]["title"],
-            "content": docs_list[i],
+            "title": meta.get("title", ""),
+            "content": content,
             "score": raw_sem,
         }
 
@@ -250,6 +256,8 @@ def rag_search_hybrid(query: str) -> str:
         reverse=True,
     )
     top_n = sorted_candidates[:8]
+    if not top_n:
+        return "（没有检索到候选诗。）"
 
     retrieved_texts = []
     for rank, (pid, info) in enumerate(top_n, 1):
@@ -284,6 +292,9 @@ while True:
         break
 
     if not query:
+        continue
+    if len(query) > MAX_USER_QUERY_CHARS:
+        print(f"[错误] 问题太长，请控制在 {MAX_USER_QUERY_CHARS} 个字符以内。")
         continue
 
     # ============================================================
@@ -323,7 +334,7 @@ while True:
             stream=False,
         )
 
-        answer = response.choices[0].message.content
+        answer = extract_chat_content(response)
 
         # ============================================================
         # 4e. 打印讲解结果
@@ -343,29 +354,6 @@ while True:
         break
 
     except Exception as e:
-        error_msg = str(e)
-
-        if "401" in error_msg or "Invalid API key" in error_msg or "AuthenticationError" in error_msg:
-            print("\n[错误] API Key 无效（401 认证失败）")
-            print("请检查你的 DEEPSEEK_API_KEY 是否正确。")
-
-        elif "402" in error_msg or "Insufficient Balance" in error_msg:
-            print("\n[错误] 账户余额不足（402）")
-            print("请去 DeepSeek 平台充值后再试。")
-
-        elif "404" in error_msg:
-            print("\n[错误] 请求的资源不存在（404）")
-
-        elif "429" in error_msg or "Rate limit" in error_msg:
-            print("\n[错误] 请求太频繁（429 速率限制），请稍等几秒后重试。")
-
-        elif "500" in error_msg or "Server Error" in error_msg or "502" in error_msg or "503" in error_msg:
-            print("\n[错误] DeepSeek 服务器暂时出错（5xx），请稍后重试。")
-
-        elif "Connection" in error_msg or "connect" in error_msg or "Network" in error_msg or "timeout" in error_msg:
-            print("\n[错误] 网络连接失败，请检查网络。")
-
-        else:
-            print(f"\n[错误] 发生未知错误：{error_msg}")
+        print(f"\n[错误] {classify_api_error(e)}")
 
         print()

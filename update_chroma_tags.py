@@ -17,9 +17,10 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import chromadb
 from chromadb.utils import embedding_functions
+from config import CHROMA_DB_PATH, POEM_TAGS_PATH
 
 # ---- 读标签文件，解析出 {诗名: tags_string} ----
-tag_file = r"D:\k12 helper\诗名-标签对照表.txt"
+tag_file = POEM_TAGS_PATH
 poem_tags = {}
 
 with open(tag_file, "r", encoding="utf-8") as f:
@@ -50,13 +51,13 @@ for line in lines:
 print(f"从标签文件解析出 {len(poem_tags)} 首诗的标签")
 
 # ---- 连接 Chroma ----
-db_path = r"D:\k12 helper\chroma_db"
+db_path = CHROMA_DB_PATH
 ef = embedding_functions.SentenceTransformerEmbeddingFunction(
     model_name="BAAI/bge-small-zh-v1.5",
     device="cpu",
     normalize_embeddings=True,
 )
-client = chromadb.PersistentClient(path=db_path)
+client = chromadb.PersistentClient(path=str(db_path))
 collection = client.get_collection(name="poems", embedding_function=ef)
 
 # ---- 获取全部记录 ----
@@ -99,9 +100,11 @@ print(f"\n更新完成！{updated}/{len(all_data['ids'])} 首诗的标签已写�
 
 # ---- 验证：随机抽查几条 ----
 print("\n===== 验证抽查 =====")
-sample_ids = [all_data["ids"][0], all_data["ids"][19], all_data["ids"][76]]
-sample_data = collection.get(ids=sample_ids, include=["metadatas"])
-for i, poem_id in enumerate(sample_data["ids"]):
-    meta = sample_data["metadatas"][i]
-    print(f"\n{meta['title']}")
-    print(f"  tags: {meta.get('tags', '（无）')[:120]}...")
+if all_data["ids"]:
+    sample_indexes = [0, min(19, len(all_data["ids"]) - 1), min(76, len(all_data["ids"]) - 1)]
+    sample_ids = [all_data["ids"][i] for i in sorted(set(sample_indexes))]
+    sample_data = collection.get(ids=sample_ids, include=["metadatas"])
+    for i, poem_id in enumerate(sample_data["ids"]):
+        meta = sample_data["metadatas"][i] or {}
+        print(f"\n{meta.get('title', poem_id)}")
+        print(f"  tags: {meta.get('tags', '（无）')[:120]}...")

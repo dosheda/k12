@@ -13,10 +13,25 @@ import os
 import sys
 import json      # 用于把 Python 字符串安全嵌入 JavaScript
 import re        # 用于清理 markdown 格式符号
+import hmac
+import time
 import streamlit as st
 
 # 学习行为记录模块（新增：智能学情分析）
 import learning_db
+from api_utils import classify_api_error, extract_chat_content
+from config import (
+    ACCESS_CODE,
+    ACCESS_CODE_ENV,
+    API_COOLDOWN_SECONDS,
+    CHROMA_DB_PATH,
+    DEEPSEEK_API_KEY_ENV,
+    MAX_REPORT_FIELD_CHARS,
+    MAX_REPORT_PROMPT_CHARS,
+    MAX_REPORT_RECORDS,
+    MAX_USER_QUERY_CHARS,
+    POEM_1_80_PATH,
+)
 
 # ============================================================
 # 修复 Windows 终端中文乱码（Streamlit 自己的日志输出也会用到）
@@ -54,6 +69,35 @@ st.set_page_config(
 if "messages" not in st.session_state:
     st.session_state.messages = []  # 对话历史，初始为空
 
+
+def require_access_code():
+    """Require a local access code before exposing LAN-visible functions."""
+    if not ACCESS_CODE:
+        st.error(f"未设置访问口令环境变量 {ACCESS_CODE_ENV}")
+        st.info(
+            "为了安全地给局域网用户访问，请先设置访问口令后再启动：\n\n"
+            f'`$env:{ACCESS_CODE_ENV} = "你自己的访问口令"`\n\n'
+            "`python -m streamlit run app.py`"
+        )
+        st.stop()
+
+    if st.session_state.get("_access_ok"):
+        return
+
+    st.title("K12 古诗词讲解助手")
+    st.caption("请输入访问口令后继续。")
+    entered = st.text_input("访问口令", type="password")
+    if st.button("进入", use_container_width=True):
+        if hmac.compare_digest(entered, ACCESS_CODE):
+            st.session_state._access_ok = True
+            st.rerun()
+        else:
+            st.error("访问口令不正确。")
+    st.stop()
+
+
+require_access_code()
+
 # 当前轮数直接从 messages 长度算，不用手动维护（避免时序 bug）
 current_round = len(st.session_state.messages) // 2
 
@@ -85,15 +129,15 @@ def load_embedding_function():
 @st.cache_resource
 def load_chroma_collection():
     """加载 Chroma 向量库，只跑一次"""
-    db_path = r"D:\k12 helper\chroma_db"
+    db_path = CHROMA_DB_PATH
 
     if not os.path.exists(db_path):
-        st.error(f"找不到向量库文件夹：{db_path}")
+        st.error("找不到向量库文件夹。")
         st.info("请先运行 build_rag_db.py 建库！")
         st.stop()
 
     embedding_fn = load_embedding_function()
-    chroma_client = chromadb.PersistentClient(path=db_path)
+    chroma_client = chromadb.PersistentClient(path=str(db_path))
     collection = chroma_client.get_collection(
         name="poems",
         embedding_function=embedding_fn,
@@ -107,13 +151,13 @@ def load_chroma_collection():
 
 def get_deepseek_client():
     """从环境变量读取 API Key，创建 DeepSeek 客户端"""
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    api_key = os.environ.get(DEEPSEEK_API_KEY_ENV)
 
     if api_key is None:
-        st.error("找不到环境变量 DEEPSEEK_API_KEY")
+        st.error(f"找不到环境变量 {DEEPSEEK_API_KEY_ENV}")
         st.info(
             "请在 PowerShell 中先运行：\n\n"
-            '`$env:DEEPSEEK_API_KEY = "sk-你的key"`\n\n'
+            f'`$env:{DEEPSEEK_API_KEY_ENV} = "sk-你的key"`\n\n'
             "然后再用 `streamlit run app.py` 启动。"
         )
         st.stop()
@@ -192,23 +236,31 @@ def load_poem_data():
       - 全文：从古诗词1-80_整理版.txt 读取
       - 标签：从 Chroma metadata 读取（上一步 update_chroma_tags.py 写入的）
     """
-    file_path = r"D:\k12 helper\古诗词1-80_整理版.txt"
+    file_path = POEM_1_80_PATH
+    if not file_path.exists():
+        st.error("找不到古诗词数据文件。")
+        st.stop()
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
     poems = [c.strip() for c in content.split("=====") if c.strip()]
 
     # 从 Chroma 拿已有 metadata（含 tags 字段）
     collection = load_chroma_collection()
-    all_meta = collection.get(include=["metadatas"])
+    try:
+        all_meta = collection.get(include=["metadatas"])
+    except Exception:
+        st.error("读取向量库 metadata 失败，请检查 chroma_db 是否完整。")
+        st.stop()
+    metadatas = all_meta.get("metadatas") or []
 
     poem_list = []
     for i in range(len(poems)):
-        meta = all_meta["metadatas"][i] if i < len(all_meta["metadatas"]) else {}
+        meta = metadatas[i] if i < len(metadatas) and isinstance(metadatas[i], dict) else {}
         poem_list.append({
             "id": f"poem_{i:02d}",      # 和建库时的 ID 一致
-            "title": meta.get("title", ""),
+            "title": str(meta.get("title", "") or ""),
             "text": poems[i],
-            "tags": meta.get("tags", ""),
+            "tags": str(meta.get("tags", "") or ""),
         })
     return poem_list
 
@@ -305,11 +357,16 @@ def rag_search(query: str) -> str:
     # ============================================================
     # 第一路：语义向量检索（和原来一样，n_results 扩到 15）
     # ============================================================
-    semantic_results = collection.query(
-        query_texts=[query],
-        n_results=15,
-        include=["documents", "metadatas", "distances"],
-    )
+    try:
+        semantic_results = collection.query(
+            query_texts=[query],
+            n_results=15,
+            include=["documents", "metadatas", "distances"],
+        )
+    except Exception:
+        st.session_state._last_search_structured = []
+        st.error("检索向量库失败，请检查知识库是否完整。")
+        st.stop()
 
     # ============================================================
     # 第二路：关键词/标签匹配
@@ -323,10 +380,10 @@ def rag_search(query: str) -> str:
     candidates = {}
 
     # ---- 2a. 语义结果转得分 ----
-    ids_list = semantic_results["ids"][0]
-    docs_list = semantic_results["documents"][0]
-    metas_list = semantic_results["metadatas"][0]
-    distances = semantic_results["distances"][0]
+    ids_list = (semantic_results.get("ids") or [[]])[0]
+    docs_list = (semantic_results.get("documents") or [[]])[0]
+    metas_list = (semantic_results.get("metadatas") or [[]])[0]
+    distances = (semantic_results.get("distances") or [[]])[0]
 
     # 归一化用
     max_dist = max(distances) if distances else 1.0
@@ -334,13 +391,16 @@ def rag_search(query: str) -> str:
 
     for i in range(len(ids_list)):
         pid = ids_list[i]
+        meta = metas_list[i] if i < len(metas_list) and isinstance(metas_list[i], dict) else {}
+        content = docs_list[i] if i < len(docs_list) else ""
+        distance = distances[i] if i < len(distances) else max_dist
         # 距离 → 相似度（0 = 最像，1 = 最不像 → 映射到 1~0）
-        raw_sem = 1.0 - (distances[i] - min_dist) / (max_dist - min_dist + 0.001)
+        raw_sem = 1.0 - (distance - min_dist) / (max_dist - min_dist + 0.001)
         candidates[pid] = {
-            "title": metas_list[i]["title"],
-            "content": docs_list[i],
+            "title": meta.get("title", ""),
+            "content": content,
             "score": raw_sem,  # 基础分：语义相似度
-            "tags": metas_list[i].get("tags", ""),  # 标签，供学情记录使用
+            "tags": str(meta.get("tags", "") or ""),  # 标签，供学情记录使用
         }
 
     # ---- 2b. 关键词结果加权叠加 ----
@@ -370,6 +430,9 @@ def rag_search(query: str) -> str:
         reverse=True,
     )
     top_n = sorted_candidates[:8]
+    if not top_n:
+        st.session_state._last_search_structured = []
+        return "（没有检索到候选诗。）"
 
     # ---- 2d. 把结构化检索结果存入 session_state，供学情记录模块使用 ----
     st.session_state._last_search_structured = [
@@ -435,7 +498,7 @@ def chat_with_deepseek(messages: list[dict]) -> str:
         messages=messages,
         stream=False,
     )
-    return response.choices[0].message.content
+    return extract_chat_content(response)
 
 
 # ============================================================
@@ -452,17 +515,17 @@ def parse_taught_poems(answer: str) -> tuple:
       poem_names:   ["静夜思", "望庐山瀑布", "春晓"] 或 []
     """
     import re
-    marker_pat = r'<!--\s*taught:\s*([^-]+?)-->'
-    m = re.search(marker_pat, answer)
+    marker_pat = r'<!--\s*taught:\s*(.*?)-->'
+    m = re.search(marker_pat, answer, flags=re.DOTALL)
     if not m:
         return answer, []  # 模型没按要求加标记 → 回退返回空列表
 
     # 解析诗名列表
     raw = m.group(1).strip()
-    poem_names = [name.strip() for name in raw.split(",") if name.strip()]
+    poem_names = [name.strip() for name in re.split(r'[,，、;\n]+', raw) if name.strip()]
 
     # 从回答里删掉整行标记
-    clean = re.sub(r'\n?<!--\s*taught:.*?-->\n?', '', answer)
+    clean = re.sub(r'\n?<!--\s*taught:.*?-->\n?', '', answer, flags=re.DOTALL)
 
     return clean, poem_names
 
@@ -472,6 +535,27 @@ def trim_history():
     if len(st.session_state.messages) > MAX_MESSAGES:
         # 只保留最后 MAX_MESSAGES 条
         st.session_state.messages = st.session_state.messages[-MAX_MESSAGES:]
+
+
+def validate_user_query(raw_query: str) -> str | None:
+    """Validate chat input before recording or calling the API."""
+    query = raw_query.strip()
+    if not query:
+        st.warning("请输入问题后再发送。")
+        return None
+    if len(query) > MAX_USER_QUERY_CHARS:
+        st.error(f"问题太长了，请控制在 {MAX_USER_QUERY_CHARS} 个字符以内。")
+        return None
+
+    now = time.time()
+    last_call = st.session_state.get("_last_api_call_ts", 0.0)
+    remaining = API_COOLDOWN_SECONDS - (now - last_call)
+    if remaining > 0:
+        st.warning(f"请求太频繁，请 {remaining:.1f} 秒后再试。")
+        return None
+
+    st.session_state._last_api_call_ts = now
+    return query
 
 
 # ============================================================
@@ -520,8 +604,15 @@ def generate_learning_report() -> str:
     返回：报告文本（str）
     """
     # ---- 1. 获取数据 ----
-    records = learning_db.get_all_records()
-    stats = learning_db.get_stats()
+    try:
+        records = learning_db.get_all_records()
+        stats = learning_db.get_stats()
+    except Exception:
+        return (
+            "## 📊 学情分析报告\n\n"
+            "### ⚠️ 学习记录暂时无法读取\n\n"
+            "请稍后再试；如果问题持续，请检查本地学习记录数据库。"
+        )
 
     # ---- 2. 数据不足时，不调 API，直接返回提示 ----
     if stats["total_questions"] < 3:
@@ -547,14 +638,15 @@ def generate_learning_report() -> str:
     )
 
     # 3b. 提问和诗名列表
+    records_for_prompt = records[-MAX_REPORT_RECORDS:]
     question_list = "\n".join(
-        f"  {i+1}. {r['question']}"
-        f"（讲了：{'、'.join(p['title'] for p in r['poem_data'][:3])}）"
-        for i, r in enumerate(records)
+        f"  {i+1}. {r['question'][:MAX_REPORT_FIELD_CHARS]}"
+        f"（讲了：{'、'.join(p['title'][:MAX_REPORT_FIELD_CHARS] for p in r['poem_data'][:3])}）"
+        for i, r in enumerate(records_for_prompt)
     )
 
     # 3c. 接触过的所有诗
-    poem_list = "、".join(stats["all_poems"])
+    poem_list = "、".join(stats["all_poems"])[:MAX_REPORT_PROMPT_CHARS // 3]
 
     # ---- 4. 组装 prompt ----
     user_message = (
@@ -570,6 +662,8 @@ def generate_learning_report() -> str:
         f"请基于以上数据生成报告。记住：语气温暖、适合家长阅读、"
         f"给出具体的拓展建议。如果数据明显偏向某个类型，如实指出。"
     )
+    if len(user_message) > MAX_REPORT_PROMPT_CHARS:
+        user_message = user_message[:MAX_REPORT_PROMPT_CHARS] + "\n\n（后续记录已因长度限制省略。）"
 
     # ---- 5. 调 DeepSeek ----
     deepseek = get_deepseek_client()
@@ -583,14 +677,13 @@ def generate_learning_report() -> str:
             ],
             stream=False,
         )
-        report = response.choices[0].message.content
+        report = extract_chat_content(response)
 
         # 加上标题
         return f"## 📊 学情分析报告\n\n{report}"
 
-    except Exception as e:
+    except Exception:
         # 如果 API 调用失败，至少返回一个基于本地数据的简单报告
-        error_msg = str(e)
         return (
             "## 📊 学情分析报告\n\n"
             "### ⚠️ AI 报告生成暂时失败\n\n"
@@ -598,8 +691,7 @@ def generate_learning_report() -> str:
             f"- 总提问次数：**{stats['total_questions']}**\n"
             f"- 接触过的诗：**{stats['total_poems']}** 首\n"
             f"- 最常关注的主题：{tag_summary if tag_summary else '暂无'}\n\n"
-            f"等 API 恢复后再试一次就好～\n\n"
-            f"（错误信息：{error_msg}）"
+            f"等 API 恢复后再试一次就好～"
         )
 
 
@@ -800,7 +892,11 @@ for i, msg in enumerate(st.session_state.messages):
 # st.chat_input 是 Streamlit 专门给聊天界面用的输入框，
 # 固定在页面底部，回车发送，自带发送按钮。
 # 用户输入后返回字符串，没输入时返回 None。
-if user_query := st.chat_input("在这里输入你的问题……"):
+if raw_user_query := st.chat_input("在这里输入你的问题……"):
+    user_query = validate_user_query(raw_user_query)
+    if user_query is None:
+        st.stop()
+
     # ---- 8a. 把用户消息加入历史并立刻显示 ----
     st.session_state.messages.append({"role": "user", "content": user_query})
     with st.chat_message("user"):
@@ -856,25 +952,4 @@ if user_query := st.chat_input("在这里输入你的问题……"):
 
             # ---- 报错处理（和原来一样）----
             except Exception as e:
-                error_msg = str(e)
-
-                if "401" in error_msg or "Invalid API key" in error_msg or "AuthenticationError" in error_msg:
-                    st.error("API Key 无效（401 认证失败），请检查你的 DEEPSEEK_API_KEY 是否正确。")
-
-                elif "402" in error_msg or "Insufficient Balance" in error_msg:
-                    st.error("账户余额不足（402），请去 DeepSeek 平台充值后再试。")
-
-                elif "404" in error_msg:
-                    st.error("请求的资源不存在（404）。")
-
-                elif "429" in error_msg or "Rate limit" in error_msg:
-                    st.error("请求太频繁（429 速率限制），请稍等几秒后重试。")
-
-                elif "500" in error_msg or "Server Error" in error_msg or "502" in error_msg or "503" in error_msg:
-                    st.error("DeepSeek 服务器暂时出错（5xx），请稍后重试。")
-
-                elif "Connection" in error_msg or "connect" in error_msg or "Network" in error_msg or "timeout" in error_msg:
-                    st.error("网络连接失败，请检查网络。")
-
-                else:
-                    st.error(f"发生未知错误：{error_msg}")
+                st.error(classify_api_error(e))

@@ -13,6 +13,14 @@ r"""
 
 import re
 import os
+from config import (
+    POEM_1_80_PATH,
+    POEM_21_40_PATH,
+    SOURCE_POEMS_1_20_PATH,
+    SOURCE_POEMS_41_60_PATH,
+    SOURCE_POEMS_61_80_PATH,
+)
+from safe_io import atomic_write_text
 
 # ============================================================
 # 工具函数：按诗编号匹配 + 切分
@@ -84,19 +92,19 @@ def main():
     all_poems = []  # 按 1-80 顺序存放
 
     # ---- 第 1 批：古诗20.txt（诗的 1-20）----
-    poems_1_20 = process_file(r"C:\Users\aa\Music\shi\古诗20.txt", use_separator=False)
+    poems_1_20 = process_file(str(SOURCE_POEMS_1_20_PATH), use_separator=False)
     all_poems.extend(poems_1_20)
 
     # ---- 第 2 批：古诗词21-40_整理版.txt（21-40）----
-    poems_21_40 = process_file(r"D:\k12 helper\古诗词21-40_整理版.txt", use_separator=True)
+    poems_21_40 = process_file(str(POEM_21_40_PATH), use_separator=True)
     all_poems.extend(poems_21_40)
 
     # ---- 第 3 批：60.txt（41-60）----
-    poems_41_60 = process_file(r"C:\Users\aa\Music\shi\60.txt", use_separator=False)
+    poems_41_60 = process_file(str(SOURCE_POEMS_41_60_PATH), use_separator=False)
     all_poems.extend(poems_41_60)
 
     # ---- 第 4 批：80.txt（61-80）----
-    poems_61_80 = process_file(r"C:\Users\aa\Music\shi\80.txt", use_separator=False)
+    poems_61_80 = process_file(str(SOURCE_POEMS_61_80_PATH), use_separator=False)
     all_poems.extend(poems_61_80)
 
     print(f"\n合并完成，共 {len(all_poems)} 首诗。")
@@ -106,12 +114,11 @@ def main():
         print(f"  [警告] 预期 80 首，实际 {len(all_poems)} 首，请检查！")
 
     # ---- 写入合并文件 ----
-    output_path = r"D:\k12 helper\古诗词1-80_整理版.txt"
-    with open(output_path, "w", encoding="utf-8") as f:
-        for i, poem in enumerate(all_poems):
-            f.write(poem)
-            if i < len(all_poems) - 1:
-                f.write("\n\n=====\n\n")  # 统一用 ===== 分隔
+    output_path = POEM_1_80_PATH
+    output_text = "\n\n=====\n\n".join(all_poems)
+    backup = atomic_write_text(output_path, output_text, encoding="utf-8")
+    if backup:
+        print(f"已备份原文件到：{backup}")
 
     print(f"已写入：{output_path}")
     print(f"文件大小：{os.path.getsize(output_path):,} 字节")

@@ -10,6 +10,7 @@ K12 错题讲解助手 —— 最小起步版本
 # ============================================================
 import os       # 用于读取环境变量
 import sys      # 用于退出程序、读取命令行输入
+from pathlib import Path
 
 # ============================================================
 # 修复 Windows 终端中文乱码问题
@@ -31,10 +32,18 @@ from openai import OpenAI
 # PIL (Pillow)：用来打开各种格式的图片文件
 import pytesseract
 from PIL import Image
+from api_utils import classify_api_error, extract_chat_content
+from config import (
+    DEEPSEEK_API_KEY_ENV,
+    MAX_OCR_IMAGE_BYTES,
+    MAX_OCR_IMAGE_PIXELS,
+    MAX_USER_QUERY_CHARS,
+    TESSERACT_CMD,
+)
 
 # 告诉 pytesseract Tesseract 引擎装在哪里
 # 你刚才装的 Tesseract 就在这里
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
 
 # 常见的图片文件后缀（用来判断用户是不是拖了一张图进来）
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff", ".webp"}
@@ -44,14 +53,14 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff", ".webp"}
 # 第 2 步：从环境变量读取 API Key
 # ============================================================
 # 这样做的好处：key 不会写死在代码里，不会不小心上传到 GitHub
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+DEEPSEEK_API_KEY = os.environ.get(DEEPSEEK_API_KEY_ENV)
 
 # 如果用户忘了设置环境变量，给一个友好的提示并退出
 if DEEPSEEK_API_KEY is None:
-    print("[错误] 找不到环境变量 DEEPSEEK_API_KEY")
+    print(f"[错误] 找不到环境变量 {DEEPSEEK_API_KEY_ENV}")
     print("请先设置环境变量：")
     print("  Windows PowerShell: $env:DEEPSEEK_API_KEY='sk-你的key'")
-    print("  Windows CMD:        set DEEPSEEK_API_KEY=sk-你的key")
+    print("  Windows CMD:        set DEEPSEEK_API_KEY=<你的 DeepSeek API Key>")
     sys.exit(1)  # 非 0 退出码表示程序异常结束
 
 
@@ -123,22 +132,30 @@ def ocr_image(image_path, confirm=True):
     confirm=False：直接返回结果（命令行一次性模式用）
     """
     # 1. 检查文件是否存在
-    if not os.path.isfile(image_path):
-        print(f"[错误] 找不到这个文件，请检查路径：{image_path}")
+    path = Path(image_path)
+    if not path.is_file():
+        print("[错误] 找不到这个文件，请检查路径是否正确。")
+        return None
+    if path.stat().st_size > MAX_OCR_IMAGE_BYTES:
+        print(f"[错误] 图片太大，请控制在 {MAX_OCR_IMAGE_BYTES // (1024 * 1024)}MB 以内。")
         return None
 
     # 2. 检查是不是图片格式
-    ext = os.path.splitext(image_path)[1].lower()  # 取文件后缀名，转小写
+    ext = path.suffix.lower()  # 取文件后缀名，转小写
     if ext not in IMAGE_EXTENSIONS:
         print(f"[错误] 这个文件后缀是 {ext}，不是常见的图片格式哦。")
         print(f" 支持的格式：{', '.join(sorted(IMAGE_EXTENSIONS))}")
         return None
 
     # 3. 用 Pillow 打开图片，交给 Tesseract 读文字
-    print(f"\n[OCR] 正在识别图片：{image_path}")
+    print(f"\n[OCR] 正在识别图片：{path.name}")
     print("[OCR] 请稍候...")
     try:
-        img = Image.open(image_path)               # 打开图片文件
+        img = Image.open(path)               # 打开图片文件
+        width, height = img.size
+        if width * height > MAX_OCR_IMAGE_PIXELS:
+            print(f"[错误] 图片像素过大，请控制在 {MAX_OCR_IMAGE_PIXELS:,} 像素以内。")
+            return None
         # Tesseract 引擎识别文字，lang 参数告诉它用中英文混合识别
         text = pytesseract.image_to_string(
             img,
@@ -184,7 +201,7 @@ def ocr_image(image_path, confirm=True):
         return text
 
     except Exception as e:
-        print(f"[OCR] 识别失败：{str(e)}")
+        print("[OCR] 识别失败，请确认图片格式和 Tesseract 配置。")
         return None
 
 
@@ -211,7 +228,7 @@ def ask(question):
         )
 
         # 从返回结果里取出 AI 的回复文字
-        answer = response.choices[0].message.content
+        answer = extract_chat_content(response)
 
         # 打印讲解结果
         print("=" * 60)
@@ -228,41 +245,7 @@ def ask(question):
         sys.exit(0)
 
     except Exception as e:
-        error_msg = str(e)
-
-        # 判断是哪种错误，给出对应的中文提示
-        if "401" in error_msg or "Invalid API key" in error_msg or "AuthenticationError" in error_msg:
-            print("\n[错误] API Key 无效（401 认证失败）")
-            print("请检查你的 DEEPSEEK_API_KEY 是否正确。")
-            print("可以去 https://platform.deepseek.com/api_keys 查看和创建 Key。")
-
-        elif "402" in error_msg or "Insufficient Balance" in error_msg:
-            print("\n[错误] 账户余额不足（402）")
-            print("请去 DeepSeek 平台充值后再试。")
-
-        elif "404" in error_msg:
-            print("\n[错误] 请求的资源不存在（404）")
-            print("请确认模型名称是否正确，或 API 地址是否可用。")
-
-        elif "429" in error_msg or "Rate limit" in error_msg:
-            print("\n[错误] 请求太频繁（429 速率限制）")
-            print("请稍等几秒后重试。")
-
-        elif "500" in error_msg or "Server Error" in error_msg or "502" in error_msg or "503" in error_msg:
-            print("\n[错误] DeepSeek 服务器暂时出错（5xx）")
-            print("请稍后重试，这通常是服务器端的问题。")
-
-        elif "Connection" in error_msg or "connect" in error_msg or "Network" in error_msg or "timeout" in error_msg:
-            print("\n[错误] 网络连接失败")
-            print("请检查：")
-            print("  1. 你的网络是否能正常上网？")
-            print("  2. 是否能访问 https://api.deepseek.com？")
-            print("  3. 公司/学校网络是否限制了 API 访问？")
-
-        else:
-            # 其他未知错误，把原始信息也打印出来方便排查
-            print(f"\n[错误] 发生未知错误：{error_msg}")
-            print("如果问题持续，请检查网络和 API 设置。")
+        print(f"\n[错误] {classify_api_error(e)}")
 
         print()
         return False  # 失败
@@ -295,6 +278,9 @@ if len(sys.argv) > 1:
     if not user_question:
         print("[错误] 你没有输入任何题目，程序退出。")
         sys.exit(0)
+    if len(user_question) > MAX_USER_QUERY_CHARS:
+        print(f"[错误] 题目太长，请控制在 {MAX_USER_QUERY_CHARS} 个字符以内。")
+        sys.exit(1)
 
     ask(user_question)
 
@@ -340,4 +326,7 @@ else:
             user_question = user_input
 
         # 调用上面写好的 ask 函数
+        if len(user_question) > MAX_USER_QUERY_CHARS:
+            print(f"[错误] 题目太长，请控制在 {MAX_USER_QUERY_CHARS} 个字符以内。\n")
+            continue
         ask(user_question)
