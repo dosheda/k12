@@ -42,6 +42,8 @@
 - 【2026-07-05】README 展示面重写美化：新增 emoji 分区、亮点表补充流式/来源/可视化/多用户、加「版本历程」表（含各版本真实日期）、结构与文案整体打磨。
 - 【2026-07-05】提交、推送并发布新版 `v0.6.0`（UI 第一梯队 + README 美化）；README 徽章与应用页脚同步为 `v0.6.0`。
 - 【2026-07-05】重写 GitHub 历史 release 描述（v0.1.0–v0.5.0）为统一的美化版式，并在每条注明真实发布日期。注意：GitHub「Update release」API 不支持修改 `published_at`（实测 PATCH 被静默忽略），v0.1.0–v0.4.0 因早前批量重新发布，发布页相对时间被重置为今天且无法用 API 改回；真实时间以 release 描述内的日期与 git 提交时间为准。
+- 【2026-07-05】UI 进化第二梯队 + 打磨：① 整体主题化（`.streamlit/config.toml` 暖色/品牌蓝/圆角）+ 顶部品牌 Hero 抬头 + 侧边栏页脚升级；② 古诗库浏览弹窗（`render_poem_library_dialog`，搜索+标签筛选+全文）；③ 来源卡片改为可点击按钮（点诗名 `open_library_for_poem` 跳古诗库看全文，卡片样式经 CSS 保留观感）；④ 欢迎空状态（`render_welcome`，无对话时大号可点击示例）；⑤「试试这些」示例改为可点击按钮（`_pending_query` 机制）+ 彩色 hover；⑥ TTS 按钮改鲜亮渐变胶囊、聊天头像换 👩‍🏫/🧒；⑦ 已学古诗>提问次数加注解；⑧ 流式首字等待加 spinner 过渡（修“看似卡死”）。位置：`app.py`、`.streamlit/config.toml`。
+- 【2026-07-05】提交、推送并发布新版 `v0.7.0`（UI 第二梯队 + 界面美化）；README 徽章、版本历程与应用页脚同步为 `v0.7.0`。
 
 ---
 
@@ -72,10 +74,10 @@
 
 ## 正在做（当前任务）
 
-- 任务：无。`v0.6.0` 已完成 UI 第一梯队（流式 / 来源卡片 / 学情可视化）与 README 美化并发布。
-- 进展到哪：UI 三项已实现并做逻辑/结构测试；README 重写；历史 release 描述已美化并补真实日期。
-- 相关文件：`app.py`、`README.md`、`PROGRESS.md`。
-- 卡点/待决定：真机流式渲染尚未在本环境跑过（需本地 API key），交由使用者验收；若 Streamlit 过滤了自定义 HTML class 导致样式不生效需回调微调。UI 第二梯队（整体主题化、标签 chips、古诗库浏览页）待安排。`chromadb==1.5.9` 截至 2026-06-13 未查到更高修复版，保留本地-only 红线并持续关注升级。
+- 任务：无。`v0.7.0` 已完成 UI 第二梯队（主题化 / Hero / 古诗库 / 可点击来源 / 欢迎页 / 可点击示例）并发布。
+- 进展到哪：UI 一、二梯队均已实现；README 与版本历程同步到 v0.7.0。
+- 相关文件：`app.py`、`.streamlit/config.toml`、`README.md`、`PROGRESS.md`。
+- 卡点/待决定：真机渲染由使用者在浏览器逐版验收（本环境无 API key）；来源卡片从纯 HTML 卡改为 Streamlit 按钮卡（靠 `st-key-` class 定制样式），依赖 Streamlit 版本保留该 class。UI 第三梯队（移动端适配、深色模式微调）与「朗读只在最新一条」为待选项。`chromadb==1.5.9` 保留本地-only 红线并持续关注升级。
 
 ---
 
@@ -135,5 +137,5 @@
 - 不要把 Chroma 改成 HTTP server；当前只允许本地 `PersistentClient`。
 - 不要把 API key 或访问口令写入 `.bat`、`.env`、说明文档真实示例或任何会提交的文件。
 - 新增路径请放进 `config.py` 或环境变量，不要重新写本机绝对路径。
-- 当前仓库远端是 `https://github.com/dosheda/k12.git`，默认分支 `main`，已有 release `v0.1.0`~`v0.5.0`，本次发布 `v0.6.0`（UI 第一梯队 + README 美化）。
+- 当前仓库远端是 `https://github.com/dosheda/k12.git`，默认分支 `main`，已有 release `v0.1.0`~`v0.6.0`，本次发布 `v0.7.0`（UI 第二梯队 + 界面美化）。
 - GitHub release 的 `published_at` 无法用 API 修改（实测被静默忽略）；历史 release 相对时间显示为今天属平台限制，真实日期以 release 描述与 git 提交时间为准，勿反复尝试用 API 改。

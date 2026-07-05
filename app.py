@@ -28,7 +28,11 @@ from auth_utils import (
     create_remember_token,
     validate_remember_token,
 )
-from learning_record_utils import build_interaction_payload, parse_learning_marker
+from learning_record_utils import (
+    build_interaction_payload,
+    normalize_poem_name,
+    parse_learning_marker,
+)
 from config import (
     ACCESS_CODE,
     ACCESS_CODE_ENV,
@@ -62,7 +66,18 @@ CHAT_SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 LEARNER_ID_COOKIE_NAME = "k12_helper_learner_id"
 LEARNER_ID_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60
 POEM_TOTAL = 80  # 知识库古诗总数，用于“已学习进度”条的分母
-APP_VERSION = "0.6.0"
+# 聊天头像：老师 / 学生，替换默认图标，更童趣、更贴主题
+ASSISTANT_AVATAR = "👩‍🏫"
+USER_AVATAR = "🧒"
+# 示例问题：侧边栏和欢迎页共用
+EXAMPLE_QUESTIONS = [
+    "和友情有关的诗有哪些？",
+    "望庐山瀑布好在哪里？",
+    "有没有描写春天的诗？",
+    "再讲一首",
+    "它的作者是谁？",
+]
+APP_VERSION = "0.7.0"
 
 
 # ============================================================
@@ -894,6 +909,56 @@ def render_learning_report_dialog():
         st.rerun()
 
 
+@st.dialog("📚 古诗库", width="large")
+def render_poem_library_dialog():
+    """让学生主动浏览全部古诗：按诗名/诗句/标签搜索，按标签筛选，看全文。"""
+    poems = load_poem_data()
+    total = len(poems)
+    all_tags = sorted({
+        t.strip()
+        for p in poems
+        for t in str(p.get("tags", "")).split("、")
+        if t.strip()
+    })
+
+    col_q, col_t = st.columns([3, 2])
+    query = col_q.text_input("搜索诗名 / 诗句 / 标签", key="_lib_query").strip()
+    tag_sel = col_t.selectbox("按标签筛选", ["（全部标签）"] + all_tags, key="_lib_tag")
+
+    def _match(poem: dict) -> bool:
+        if query and query not in poem["title"] and query not in poem["text"] and query not in poem["tags"]:
+            return False
+        if tag_sel != "（全部标签）":
+            tags = [t.strip() for t in poem["tags"].split("、")]
+            if tag_sel not in tags:
+                return False
+        return True
+
+    filtered = [p for p in poems if _match(p)]
+    st.caption(f"共 {total} 首 · 当前显示 {len(filtered)} 首")
+
+    if not filtered:
+        st.info("没有匹配的诗，换个关键词或标签试试～")
+
+    for poem in filtered:
+        with st.expander(poem["title"] or "（未命名）"):
+            tags = [t.strip() for t in poem["tags"].split("、") if t.strip()]
+            if tags:
+                chips = "".join(f'<span class="k12-chip">{html.escape(t)}</span>' for t in tags)
+                st.markdown(
+                    f'<div class="k12-card-tags" style="margin-bottom:8px">{chips}</div>',
+                    unsafe_allow_html=True,
+                )
+            st.markdown(
+                f'<div class="k12-poem-text">{html.escape(poem["text"])}</div>',
+                unsafe_allow_html=True,
+            )
+
+    if st.button("关闭", use_container_width=True, key="_lib_close"):
+        st.session_state._show_library = False
+        st.rerun()
+
+
 # ============================================================
 # 朗读功能（浏览器内置 TTS，免费，无需 API Key）
 # ============================================================
@@ -941,19 +1006,30 @@ def render_tts_button(text: str):
   body {{
     margin: 0;
     padding: 4px 0;
-    font-family: sans-serif;
+    font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: transparent;
   }}
   button {{
-    font-size: 14px;
-    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 17px;
     cursor: pointer;
     border: none;
-    border-radius: 5px;
-    transition: opacity 0.2s;
+    border-radius: 999px;
+    color: #fff;
+    transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
   }}
-  button:hover {{ opacity: 0.85; }}
-  .speak-btn {{ background: #4CAF50; color: white; }}
-  .stop-btn  {{ background: #f44336; color: white; margin-left: 8px; }}
+  button:hover {{ transform: translateY(-1px); filter: brightness(1.05); }}
+  button:active {{ transform: translateY(0); filter: brightness(0.98); }}
+  .speak-btn {{
+    background: linear-gradient(135deg, #36d267, #22a94b);
+    box-shadow: 0 3px 9px rgba(34, 169, 75, 0.38);
+  }}
+  .stop-btn  {{
+    background: linear-gradient(135deg, #ff7a6b, #f0483a);
+    box-shadow: 0 3px 9px rgba(240, 72, 58, 0.34);
+    margin-left: 8px;
+  }}
 </style>
 </head>
 <body>
@@ -1040,11 +1116,97 @@ GLOBAL_CSS = """
 .k12-bar-track { height: 8px; border-radius: 999px; background: rgba(128,128,128,0.2); overflow: hidden; }
 .k12-bar-fill { display: block; height: 100%; border-radius: 999px; }
 .k12-bar-val { font-size: 0.72rem; opacity: 0.6; text-align: right; font-variant-numeric: tabular-nums; }
+/* 古诗库全文：保留换行、正文字体（非等宽） */
+.k12-poem-text { white-space: pre-wrap; line-height: 1.75; font-size: 0.9rem; }
+/* 顶部 Hero 抬头 */
+.k12-hero {
+  display: flex; align-items: center; gap: 16px;
+  padding: 20px 24px; margin: 0 0 6px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #2f6fed 0%, #4b8bff 45%, #12b886 125%);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(47, 111, 237, 0.25);
+}
+.k12-hero-emoji {
+  font-size: 2.4rem; line-height: 1;
+  width: 64px; height: 64px; min-width: 64px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 16px;
+}
+.k12-hero-title { font-size: 1.65rem; font-weight: 800; letter-spacing: 0.5px; }
+.k12-hero-sub { font-size: 0.94rem; opacity: 0.96; margin-top: 4px; }
+.k12-hero-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.k12-hero-tags span {
+  font-size: 0.72rem; padding: 3px 10px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.20); white-space: nowrap;
+}
+/* 欢迎空状态 */
+.k12-welcome { text-align: center; padding: 18px 16px 6px; }
+.k12-welcome-emoji { font-size: 2.6rem; line-height: 1; }
+.k12-welcome-title { font-size: 1.2rem; font-weight: 700; margin-top: 8px; }
+.k12-welcome-sub { font-size: 0.92rem; opacity: 0.7; margin: 6px 0 14px; }
+/* 侧边栏页脚（放大一档，更有分量） */
+.k12-foot { text-align: center; padding: 6px 0 4px; line-height: 1.8; }
+.k12-foot-title { font-size: 1rem; font-weight: 700; opacity: 0.9; }
+.k12-foot-ver {
+  display: inline-block; margin: 6px 0; font-size: 0.8rem;
+  padding: 3px 13px; border-radius: 999px;
+  background: rgba(47, 111, 237, 0.14); color: #2f6fed; font-weight: 600;
+}
+.k12-foot-love { font-size: 0.82rem; opacity: 0.6; }
+/* 轻度打磨：按钮/输入更圆润，贴合童趣定位 */
+.stApp .stButton > button { border-radius: 10px; }
+.stApp [data-testid="stChatInput"] textarea { border-radius: 12px; }
+/* 「试试这些」示例按钮：彩色 hover 微动效 */
+[class*="st-key-_example_"] button { transition: all 0.15s ease; }
+[class*="st-key-_example_"] button:hover {
+  border-color: #2f6fed !important;
+  color: #2f6fed !important;
+  background: linear-gradient(135deg, #eaf1ff, #e6f7f0) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(47, 111, 237, 0.18);
+}
+/* 来源诗卡片：做成可点击按钮，仍保持卡片观感 */
+[class*="st-key-_src"] button {
+  text-align: left; justify-content: flex-start;
+  border: 1px solid rgba(128,128,128,0.28) !important;
+  border-radius: 12px !important;
+  background: rgba(128,128,128,0.07) !important;
+  font-weight: 600 !important;
+  transition: all 0.15s ease;
+}
+[class*="st-key-_src"] button:hover {
+  border-color: #2f6fed !important;
+  color: #2f6fed !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(47, 111, 237, 0.18);
+}
 @media (prefers-color-scheme: dark) {
   .k12-chip { background: rgba(110,168,255,0.2); color: #8fb8ff; }
   .k12-card { border-color: rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); }
+  .k12-foot-ver { background: rgba(110,168,255,0.2); color: #8fb8ff; }
+  [class*="st-key-_example_"] button:hover {
+    background: linear-gradient(135deg, rgba(47,111,237,0.22), rgba(18,184,134,0.22)) !important;
+    color: #8fb8ff !important; border-color: #6ea8ff !important;
+  }
+  [class*="st-key-_src"] button:hover { color: #8fb8ff !important; border-color: #6ea8ff !important; }
 }
 </style>
+"""
+
+
+HERO_HTML = """
+<div class="k12-hero">
+  <div class="k12-hero-emoji">📖</div>
+  <div>
+    <div class="k12-hero-title">K12 古诗词讲解助手</div>
+    <div class="k12-hero-sub">我是 <b>小K老师</b> 👩‍🏫 —— 你的语文学习伙伴，问我古诗词吧！</div>
+    <div class="k12-hero-tags">
+      <span>🔎 RAG 检索</span><span>🤖 DeepSeek 讲解</span><span>🏠 本地优先</span>
+    </div>
+  </div>
+</div>
 """
 
 
@@ -1053,26 +1215,57 @@ def inject_global_css():
     st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
 
 
-def render_source_cards(sources: list):
-    """在回答上方展示本轮检索到的候选诗，让 RAG 的“有据可依”看得见。"""
+def open_library_for_poem(title: str):
+    """打开古诗库弹窗并预筛选到某首诗（供来源卡片点击跳转）。"""
+    st.session_state._lib_query = normalize_poem_name(title)
+    st.session_state._lib_tag = "（全部标签）"
+    st.session_state._show_library = True
+    st.session_state.show_report = False  # 一次只开一个弹窗
+    st.rerun()
+
+
+def render_source_cards(sources: list, key_prefix: str):
+    """
+    在回答上方展示本轮检索到的候选诗，让 RAG 的“有据可依”看得见。
+    每张卡片是一个按钮，点诗名即可在「古诗库」里打开这首诗看全文。
+    key_prefix 保证历史消息与实时回答的按钮 key 不冲突。
+    """
     if not sources:
         return
-    cards = []
-    for item in sources:
-        title = html.escape(str(item.get("title", "")).strip() or "（未命名）")
-        tags_raw = str(item.get("tags", "") or "")
-        tags = [t.strip() for t in tags_raw.split("、") if t.strip()][:4]
-        chips = "".join(f'<span class="k12-chip">{html.escape(t)}</span>' for t in tags)
-        cards.append(
-            f'<div class="k12-card"><div class="k12-card-title">📖 {title}</div>'
-            f'<div class="k12-card-tags">{chips}</div></div>'
-        )
     st.markdown(
-        '<div class="k12-src">'
-        f'<div class="k12-src-label">📚 小K老师翻到了这 {len(sources)} 首诗</div>'
-        '<div class="k12-src-grid">' + "".join(cards) + "</div></div>",
+        f'<div class="k12-src-label">📚 小K老师翻到了这 {len(sources)} 首诗 · 点诗名看全文</div>',
         unsafe_allow_html=True,
     )
+    cols = st.columns(4)
+    for i, item in enumerate(sources):
+        title = str(item.get("title", "")).strip() or "（未命名）"
+        tags = [t.strip() for t in str(item.get("tags", "") or "").split("、") if t.strip()][:4]
+        with cols[i % 4]:
+            if st.button(f"📖 {title}", key=f"{key_prefix}_{i}", use_container_width=True):
+                open_library_for_poem(title)
+            if tags:
+                chips = "".join(f'<span class="k12-chip">{html.escape(t)}</span>' for t in tags)
+                st.markdown(
+                    f'<div class="k12-card-tags" style="margin:-4px 0 8px">{chips}</div>',
+                    unsafe_allow_html=True,
+                )
+
+
+def render_welcome():
+    """无对话时的欢迎空状态：友好介绍 + 大号可点击示例。"""
+    st.markdown(
+        '<div class="k12-welcome">'
+        '<div class="k12-welcome-emoji">👩‍🏫</div>'
+        '<div class="k12-welcome-title">你好呀，我是小K老师！</div>'
+        '<div class="k12-welcome-sub">挑一个问题点一下就能开始，或者直接在下方输入框问我～</div>'
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    cols = st.columns(2)
+    for i, example in enumerate(EXAMPLE_QUESTIONS):
+        if cols[i % 2].button(example, key=f"_example_home_{i}", use_container_width=True):
+            st.session_state._pending_query = example
+            st.rerun()
 
 
 def render_tag_bars(items: list, accent: str, max_rows: int = 6):
@@ -1115,6 +1308,13 @@ with st.sidebar:
         write_chat_session_cookie_script(new_chat_session_id, reload_page=True)
         st.stop()
 
+    if st.button("📚 古诗库（浏览全部）", use_container_width=True):
+        st.session_state._lib_query = ""       # 从侧边栏进入时清空搜索
+        st.session_state._lib_tag = "（全部标签）"
+        st.session_state._show_library = True
+        st.session_state.show_report = False  # 一次只开一个弹窗
+        st.rerun()
+
     if st.button("🔒 退出登录", use_container_width=True):
         st.session_state._access_ok = False
         write_auth_cookie_script(None, reload_page=True)
@@ -1137,6 +1337,8 @@ with st.sidebar:
                 min(learned / POEM_TOTAL, 1.0) if POEM_TOTAL else 0.0,
                 text=f"已学习 {learned}/{POEM_TOTAL} 首",
             )
+            if learned > stats["total_questions"]:
+                st.caption("💡 一次讲解可能涉及多首诗，所以“已学古诗”会多于提问次数。")
             if stats["review_count"] > 0:
                 st.caption(f"复习次数：{stats['review_count']}")
             if stats["mentioned_count"] > 0 or stats["no_match_count"] > 0:
@@ -1176,20 +1378,23 @@ with st.sidebar:
 
     st.divider()
     st.markdown("### 💡 试试这些")
-    st.markdown(
-        "- 和友情有关的诗有哪些？\n"
-        "- 望庐山瀑布好在哪里？\n"
-        "- 有没有描写春天的诗？\n"
-        "- 再讲一首\n"
-        "- 它的作者是谁？"
-    )
+    st.caption("点一下直接问小K老师")
+    for _i, _example in enumerate(EXAMPLE_QUESTIONS):
+        if st.button(_example, key=f"_example_{_i}", use_container_width=True):
+            st.session_state._pending_query = _example
+            st.rerun()
     st.divider()
-    st.caption(f"📖 K12 古诗词讲解助手 v{APP_VERSION}")
-    st.caption("多轮对话 · RAG 检索 + DeepSeek")
+    st.markdown(
+        f'<div class="k12-foot">'
+        f'<div class="k12-foot-title">📖 K12 古诗词讲解助手</div>'
+        f'<div class="k12-foot-ver">v{APP_VERSION} · RAG + DeepSeek</div>'
+        f'<div class="k12-foot-love">用 ❤️ 为 K12 语文学习打造</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
-# ---------- 主区域标题 ----------
-st.title("📖K12 古诗词讲解助手")
-st.markdown("我是**小K老师**，你的语文学习伙伴～ 在下面输入你的问题吧！")
+# ---------- 主区域标题：Hero 抬头 ----------
+st.markdown(HERO_HTML, unsafe_allow_html=True)
 
 # ============================================================
 # 处理待生成的学情报告（新增）
@@ -1204,38 +1409,49 @@ if st.session_state.get("_pending_report"):
         st.session_state._pending_report = False
     st.rerun()
 
-# ---- 弹窗显示已生成的报告 ----
+# ---- 弹窗显示：学情报告 / 古诗库（一次只开一个）----
 if st.session_state.get("show_report") and st.session_state.get("report_text"):
     render_learning_report_dialog()
+elif st.session_state.get("_show_library"):
+    render_poem_library_dialog()
 
 # ---------- 渲染对话历史 ----------
 # st.chat_message 会画一个聊天气泡，role="user" 靠右，role="assistant" 靠左
 for i, msg in enumerate(st.session_state.messages):
-    with st.chat_message(msg["role"]):
+    _avatar = ASSISTANT_AVATAR if msg["role"] == "assistant" else USER_AVATAR
+    with st.chat_message(msg["role"], avatar=_avatar):
         # 老师的回答上方展示本轮检索到的来源诗（仅当前会话内保留）
         if msg["role"] == "assistant" and msg.get("sources"):
-            render_source_cards(msg["sources"])
+            render_source_cards(msg["sources"], key_prefix=f"_src_{i}")
         st.markdown(msg["content"])
         # 给每条老师的讲解加朗读按钮
         if msg["role"] == "assistant":
             render_tts_button(msg["content"])
 
+# 无对话时显示欢迎空状态（大号可点击示例）
+if not st.session_state.messages:
+    render_welcome()
+
 # ---------- 聊天输入框 ----------
 # st.chat_input 是 Streamlit 专门给聊天界面用的输入框，
 # 固定在页面底部，回车发送，自带发送按钮。
 # 用户输入后返回字符串，没输入时返回 None。
-if raw_user_query := st.chat_input("在这里输入你的问题……"):
-    user_query = validate_user_query(raw_user_query)
+raw_user_query = st.chat_input("在这里输入你的问题……")
+# 侧边栏「试试这些」被点击时会写入 _pending_query，这里当作一次提问处理
+pending_example = st.session_state.pop("_pending_query", None)
+submitted_query = raw_user_query or pending_example
+if submitted_query:
+    user_query = validate_user_query(submitted_query)
     if user_query is None:
         st.stop()
 
     # ---- 8a. 把用户消息加入历史并立刻显示 ----
     st.session_state.messages.append({"role": "user", "content": user_query})
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar=USER_AVATAR):
         st.markdown(user_query)
 
     # ---- 8b. 构建 messages、流式调 DeepSeek ----
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
         try:
             # 构建完整 messages（含历史 + RAG 检索结果）——这一步含检索，稍慢，给个提示
             with st.spinner("小K老师正在翻书思考中……📚"):
@@ -1243,14 +1459,27 @@ if raw_user_query := st.chat_input("在这里输入你的问题……"):
 
             # 本轮检索到的候选诗（rag_search 已存入 session_state），先亮出来源
             sources = list(st.session_state.get("_last_search_structured", []))
-            render_source_cards(sources)
+            render_source_cards(sources, key_prefix="_srclive")
 
             # ---- 流式渲染回答（打字机效果），期间隐藏结尾隐藏学习标记 ----
             placeholder = st.empty()
             full_answer = ""
-            for piece in stream_deepseek(api_messages):
+            answer_stream = stream_deepseek(api_messages)
+
+            # 关键：首个 token 到达前有网络等待，这段最容易被误以为“卡死”。
+            # 用动画 spinner 明确提示，等第一个字到了再无缝切成打字机。
+            with st.spinner("小K老师正在动笔讲解…✍️"):
+                first_piece = next(answer_stream, None)
+            if first_piece:
+                full_answer += first_piece
+                placeholder.markdown(strip_marker_for_display(full_answer) + " ▌")
+
+            for piece in answer_stream:
                 full_answer += piece
                 placeholder.markdown(strip_marker_for_display(full_answer) + " ▌")
+
+            if not full_answer.strip():
+                raise ValueError("empty streamed response")
 
             # ---- 解析模型标注：真正讲解 / 仅提及 / 未命中 ----
             clean_answer, learning_marker = parse_learning_marker(full_answer)

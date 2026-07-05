@@ -1,0 +1,12 @@
+# K12 古诗词助手主题：暖色、清爽、品牌蓝为主色。
+# 明暗主题下 Streamlit 会各自取色；这里定义浅色主题，深色由用户端切换。
+[theme]
+primaryColor = "#2f6fed"
+backgroundColor = "#faf6ee"
+secondaryBackgroundColor = "#f1ebdd"
+textColor = "#1f2328"
+font = "sans serif"
+
+[client]
+# 隐藏右上角的部署菜单杂项，让展示页更干净（可按需去掉）
+toolbarMode = "minimal"
