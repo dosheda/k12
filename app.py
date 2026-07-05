@@ -2,7 +2,7 @@
 K12 古诗词 RAG 讲解助手 —— Streamlit 网页版（支持多轮对话）
 ============================================================
 把 rag_chat.py 的检索 + DeepSeek 讲解逻辑搬到网页上。
-v2 改动：从单轮问答 → 聊天界面多轮对话。
+v0.4.1：展示与文档优化版，保留多轮对话、学情统计和本地 RAG 流程。
 
 核心流程每一轮：
   用户输入 → RAG 检索（仍用当前问题）→ 组 prompt（包含对话历史）
@@ -57,6 +57,7 @@ from openai import OpenAI
 CHAT_SESSION_COOKIE_NAME = "k12_helper_chat_session"
 CHAT_SESSION_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 CHAT_SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+APP_VERSION = "0.4.1"
 
 
 # ============================================================
@@ -995,7 +996,7 @@ with st.sidebar:
         "- 它的作者是谁？"
     )
     st.divider()
-    st.caption("📖 K12 古诗词讲解助手 v2")
+    st.caption(f"📖 K12 古诗词讲解助手 v{APP_VERSION}")
     st.caption("多轮对话 · RAG 检索 + DeepSeek")
 
 # ---------- 主区域标题 ----------
