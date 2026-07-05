@@ -13,6 +13,7 @@ import os
 import sys
 import json      # 用于把 Python 字符串安全嵌入 JavaScript
 import re        # 用于清理 markdown 格式符号
+import html      # 用于把诗名/标签安全转义进卡片 HTML
 import hmac
 import time
 import uuid
@@ -60,7 +61,8 @@ CHAT_SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 # 和聊天会话不同——「开始新对话」只换聊天会话，不换学习者，所以学情不会清零。
 LEARNER_ID_COOKIE_NAME = "k12_helper_learner_id"
 LEARNER_ID_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60
-APP_VERSION = "0.5.0"
+POEM_TOTAL = 80  # 知识库古诗总数，用于“已学习进度”条的分母
+APP_VERSION = "0.6.0"
 
 
 # ============================================================
@@ -658,7 +660,7 @@ def build_messages_for_api(user_query: str) -> list[dict]:
 
 
 def chat_with_deepseek(messages: list[dict]) -> str:
-    """调用 DeepSeek，返回回答文本"""
+    """调用 DeepSeek，返回回答文本（非流式，供不需要打字机效果的场景）"""
     deepseek = get_deepseek_client()
     response = deepseek.chat.completions.create(
         model="deepseek-v4-pro",
@@ -666,6 +668,37 @@ def chat_with_deepseek(messages: list[dict]) -> str:
         stream=False,
     )
     return extract_chat_content(response)
+
+
+def stream_deepseek(messages: list[dict]):
+    """调用 DeepSeek 流式接口，逐段 yield 文本增量，用于打字机效果。"""
+    deepseek = get_deepseek_client()
+    response = deepseek.chat.completions.create(
+        model="deepseek-v4-pro",
+        messages=messages,
+        stream=True,
+    )
+    for chunk in response:
+        choices = getattr(chunk, "choices", None)
+        if not choices:
+            continue
+        delta = getattr(choices[0], "delta", None)
+        piece = getattr(delta, "content", None) if delta else None
+        if piece:
+            yield piece
+
+
+def strip_marker_for_display(text: str) -> str:
+    """
+    流式渲染时隐藏结尾的隐藏学习标记（`<!-- learning: ... -->`）。
+
+    标记要求写在回答最后一行，正文里不会出现 `<!--`，所以从第一个 `<!--`
+    截断即可，既能隐藏完整标记，也能隐藏还没输出完整的半截标记，避免它一闪而过。
+    """
+    idx = text.find("<!--")
+    if idx != -1:
+        return text[:idx].rstrip()
+    return text
 
 
 # ============================================================
@@ -959,8 +992,113 @@ window.addEventListener('beforeunload', function() {{
 
 
 # ============================================================
+# 视觉组件：检索来源卡片 + 学情条形 meter
+# ============================================================
+# 配色沿用项目品牌色（README 徽章）：蓝 #2f6fed、绿 #12b886。
+# 两个 meter 各是单一色相的“数量”条形，标签/数值用中性文字色，条形本身承载大小。
+# 用半透明中性背景 + 品牌强调色，明暗主题都能自适应；并用 prefers-color-scheme
+# 做暗色微调（尽力而为，兼容 Streamlit 自身深色主题）。
+
+BRAND_BLUE = "#2f6fed"
+BRAND_GREEN = "#12b886"
+
+GLOBAL_CSS = """
+<style>
+/* 检索来源卡片 */
+.k12-src { margin: 2px 0 10px; }
+.k12-src-label { font-size: 0.82rem; opacity: 0.7; margin-bottom: 6px; }
+.k12-src-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.k12-card {
+  border: 1px solid rgba(128,128,128,0.28);
+  border-radius: 12px;
+  padding: 8px 12px;
+  background: rgba(128,128,128,0.07);
+  min-width: 118px;
+  max-width: 100%;
+}
+.k12-card-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 5px; }
+.k12-card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.k12-chip {
+  font-size: 0.7rem;
+  line-height: 1.5;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(47,111,237,0.14);
+  color: #2f6fed;
+  white-space: nowrap;
+}
+/* 学情条形 meter */
+.k12-bars { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
+.k12-bar-row {
+  display: grid;
+  grid-template-columns: 4.6em 1fr 1.7em;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+.k12-bar-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.85; }
+.k12-bar-track { height: 8px; border-radius: 999px; background: rgba(128,128,128,0.2); overflow: hidden; }
+.k12-bar-fill { display: block; height: 100%; border-radius: 999px; }
+.k12-bar-val { font-size: 0.72rem; opacity: 0.6; text-align: right; font-variant-numeric: tabular-nums; }
+@media (prefers-color-scheme: dark) {
+  .k12-chip { background: rgba(110,168,255,0.2); color: #8fb8ff; }
+  .k12-card { border-color: rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); }
+}
+</style>
+"""
+
+
+def inject_global_css():
+    """注入一次全局样式（每次重跑重复注入无害）。"""
+    st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
+
+
+def render_source_cards(sources: list):
+    """在回答上方展示本轮检索到的候选诗，让 RAG 的“有据可依”看得见。"""
+    if not sources:
+        return
+    cards = []
+    for item in sources:
+        title = html.escape(str(item.get("title", "")).strip() or "（未命名）")
+        tags_raw = str(item.get("tags", "") or "")
+        tags = [t.strip() for t in tags_raw.split("、") if t.strip()][:4]
+        chips = "".join(f'<span class="k12-chip">{html.escape(t)}</span>' for t in tags)
+        cards.append(
+            f'<div class="k12-card"><div class="k12-card-title">📖 {title}</div>'
+            f'<div class="k12-card-tags">{chips}</div></div>'
+        )
+    st.markdown(
+        '<div class="k12-src">'
+        f'<div class="k12-src-label">📚 小K老师翻到了这 {len(sources)} 首诗</div>'
+        '<div class="k12-src-grid">' + "".join(cards) + "</div></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_tag_bars(items: list, accent: str, max_rows: int = 6):
+    """把 (标签, 次数) 列表渲染成单色相水平条形 meter（数量编码）。"""
+    items = list(items or [])[:max_rows]
+    if not items:
+        return
+    top = max((count for _, count in items), default=1) or 1
+    rows = []
+    for tag, count in items:
+        pct = max(6, int(round(count / top * 100)))  # 最小 6% 保证可见
+        rows.append(
+            '<div class="k12-bar-row">'
+            f'<span class="k12-bar-label" title="{html.escape(str(tag))}">{html.escape(str(tag))}</span>'
+            f'<span class="k12-bar-track"><span class="k12-bar-fill" '
+            f'style="width:{pct}%;background:{accent}"></span></span>'
+            f'<span class="k12-bar-val">{int(count)}</span>'
+            "</div>"
+        )
+    st.markdown('<div class="k12-bars">' + "".join(rows) + "</div>", unsafe_allow_html=True)
+
+
+# ============================================================
 # 第 8 步：画网页界面
 # ============================================================
+inject_global_css()
 
 # ---------- 侧边栏：工具区 ----------
 with st.sidebar:
@@ -991,8 +1129,14 @@ with st.sidebar:
     try:
         stats = learning_db.get_stats(learner_id)
         if stats["total_questions"] > 0:
-            st.metric("总提问次数", stats["total_questions"])
-            st.metric("已学习古诗数", stats["learned_poem_count"])
+            col_q, col_p = st.columns(2)
+            col_q.metric("总提问", stats["total_questions"])
+            col_p.metric("已学古诗", stats["learned_poem_count"])
+            learned = stats["learned_poem_count"]
+            st.progress(
+                min(learned / POEM_TOTAL, 1.0) if POEM_TOTAL else 0.0,
+                text=f"已学习 {learned}/{POEM_TOTAL} 首",
+            )
             if stats["review_count"] > 0:
                 st.caption(f"复习次数：{stats['review_count']}")
             if stats["mentioned_count"] > 0 or stats["no_match_count"] > 0:
@@ -1000,17 +1144,11 @@ with st.sidebar:
                     f"仅提及：{stats['mentioned_count']} 次 · 未命中/未讲解：{stats['no_match_count']} 次"
                 )
             if stats["practice_tags"]:
-                st.caption("最常练习主题：")
-                tag_text = " · ".join(
-                    f"{tag}({count})" for tag, count in stats["practice_tags"][:8]
-                )
-                st.info(tag_text)
+                st.caption("🔵 最常练习主题")
+                render_tag_bars(stats["practice_tags"], BRAND_BLUE)
             if stats["coverage_tags"]:
-                st.caption("已覆盖主题：")
-                coverage_text = " · ".join(
-                    f"{tag}({count})" for tag, count in stats["coverage_tags"][:8]
-                )
-                st.info(coverage_text)
+                st.caption("🟢 已覆盖主题")
+                render_tag_bars(stats["coverage_tags"], BRAND_GREEN)
         else:
             st.caption("暂无学习记录")
             st.caption("开始提问后会自动记录～")
@@ -1074,6 +1212,9 @@ if st.session_state.get("show_report") and st.session_state.get("report_text"):
 # st.chat_message 会画一个聊天气泡，role="user" 靠右，role="assistant" 靠左
 for i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
+        # 老师的回答上方展示本轮检索到的来源诗（仅当前会话内保留）
+        if msg["role"] == "assistant" and msg.get("sources"):
+            render_source_cards(msg["sources"])
         st.markdown(msg["content"])
         # 给每条老师的讲解加朗读按钮
         if msg["role"] == "assistant":
@@ -1093,69 +1234,78 @@ if raw_user_query := st.chat_input("在这里输入你的问题……"):
     with st.chat_message("user"):
         st.markdown(user_query)
 
-    # ---- 8b. 构建 messages、调 DeepSeek ----
+    # ---- 8b. 构建 messages、流式调 DeepSeek ----
     with st.chat_message("assistant"):
-        with st.spinner("小K老师正在翻书思考中……📚"):
-            try:
-                # 构建完整 messages（含历史 + RAG 检索结果）
+        try:
+            # 构建完整 messages（含历史 + RAG 检索结果）——这一步含检索，稍慢，给个提示
+            with st.spinner("小K老师正在翻书思考中……📚"):
                 api_messages = build_messages_for_api(user_query)
 
-                # 调 API
-                answer = chat_with_deepseek(api_messages)
+            # 本轮检索到的候选诗（rag_search 已存入 session_state），先亮出来源
+            sources = list(st.session_state.get("_last_search_structured", []))
+            render_source_cards(sources)
 
-                # ---- 解析模型标注：真正讲解 / 仅提及 / 未命中 ----
-                clean_answer, learning_marker = parse_learning_marker(answer)
+            # ---- 流式渲染回答（打字机效果），期间隐藏结尾隐藏学习标记 ----
+            placeholder = st.empty()
+            full_answer = ""
+            for piece in stream_deepseek(api_messages):
+                full_answer += piece
+                placeholder.markdown(strip_marker_for_display(full_answer) + " ▌")
 
-                # 显示回答（剥离标记后的干净版本）
-                st.markdown(clean_answer)
+            # ---- 解析模型标注：真正讲解 / 仅提及 / 未命中 ----
+            clean_answer, learning_marker = parse_learning_marker(full_answer)
 
-                # 朗读按钮（用干净文本，不念标记行）
-                render_tts_button(clean_answer)
+            # 定稿：去掉光标，显示剥离标记后的干净版本
+            placeholder.markdown(clean_answer)
 
-                # 把回答加入对话历史（存干净版本）
-                st.session_state.messages.append({"role": "assistant", "content": clean_answer})
+            # 朗读按钮（用干净文本，不念标记行）
+            render_tts_button(clean_answer)
 
-                # 裁剪历史，防止过长
-                trim_history()
+            # 把回答加入对话历史（存干净版本 + 本轮来源，供同会话内复渲染卡片）
+            st.session_state.messages.append(
+                {"role": "assistant", "content": clean_answer, "sources": sources}
+            )
 
-                # ---- 持久化聊天正文：刷新/重开浏览器后可恢复最近对话 ----
-                learning_db.record_chat_messages(
-                    chat_session_id,
-                    [
-                        {"role": "user", "content": user_query},
-                        {"role": "assistant", "content": clean_answer},
-                    ],
-                )
+            # 裁剪历史，防止过长
+            trim_history()
 
-                # ---- 记录学习行为：候选、讲解、复习、提及分开存 ----
-                last_search = st.session_state.get("_last_search_structured", [])
-                learned_titles = learning_db.get_learned_poem_titles(learner_id)
-                interaction = build_interaction_payload(
-                    search_results=last_search,
-                    poem_catalog=load_poem_data(),
-                    learned_titles=learned_titles,
-                    learning_marker=learning_marker,
-                )
-                learning_db.record_interaction(
-                    question=user_query,
-                    explained_poems=interaction["explained_poems"],
-                    reviewed_poems=interaction["reviewed_poems"],
-                    mentioned_poems=interaction["mentioned_poems"],
-                    candidate_poems=interaction["candidate_poems"],
-                    record_type=interaction["record_type"],
-                    learner_id=learner_id,
-                )
+            # ---- 持久化聊天正文：刷新/重开浏览器后可恢复最近对话 ----
+            learning_db.record_chat_messages(
+                chat_session_id,
+                [
+                    {"role": "user", "content": user_query},
+                    {"role": "assistant", "content": clean_answer},
+                ],
+            )
 
-                if interaction["explained_poems"] or interaction["reviewed_poems"]:
-                    st.toast("学习概览已更新", icon="📈")
-                elif interaction["mentioned_poems"]:
-                    st.toast("已记录本次提问（仅提及不计入已学习）", icon="📝")
-                else:
-                    st.toast("已记录本次提问（未命中具体诗）", icon="📝")
+            # ---- 记录学习行为：候选、讲解、复习、提及分开存 ----
+            learned_titles = learning_db.get_learned_poem_titles(learner_id)
+            interaction = build_interaction_payload(
+                search_results=sources,
+                poem_catalog=load_poem_data(),
+                learned_titles=learned_titles,
+                learning_marker=learning_marker,
+            )
+            learning_db.record_interaction(
+                question=user_query,
+                explained_poems=interaction["explained_poems"],
+                reviewed_poems=interaction["reviewed_poems"],
+                mentioned_poems=interaction["mentioned_poems"],
+                candidate_poems=interaction["candidate_poems"],
+                record_type=interaction["record_type"],
+                learner_id=learner_id,
+            )
 
-                # 立刻重跑一次脚本，让侧边栏的轮数、对话历史全部刷新为最新
-                st.rerun()
+            if interaction["explained_poems"] or interaction["reviewed_poems"]:
+                st.toast("学习概览已更新", icon="📈")
+            elif interaction["mentioned_poems"]:
+                st.toast("已记录本次提问（仅提及不计入已学习）", icon="📝")
+            else:
+                st.toast("已记录本次提问（未命中具体诗）", icon="📝")
 
-            # ---- 报错处理（和原来一样）----
-            except Exception as e:
-                st.error(classify_api_error(e))
+            # 立刻重跑一次脚本，让侧边栏的轮数、对话历史全部刷新为最新
+            st.rerun()
+
+        # ---- 报错处理：流式过程中任意异常都归到安全文案 ----
+        except Exception as e:
+            st.error(classify_api_error(e))

@@ -38,6 +38,10 @@
 - 【2026-07-05】修复检索错位隐患：`app.py:load_poem_data` 改为完全从 Chroma 一次取 `ids/documents/metadatas`，同一条记录内部天然对齐，不再用外部 txt 的过滤下标去配 `collection.get()`（其顺序不保证），避免诗文配错标题/标签污染检索与学情；移除已无用的 `POEM_1_80_PATH` 导入。位置：`app.py:344`。
 - 【2026-07-05】学情统计支持多用户隔离：新增持久化 `learner_id` cookie（独立于聊天会话，max-age 1 年，「开始新对话」不清零学情）；`learning_records` 增加可空 `learner_id` 列，`get_stats/get_all_records/get_learned_poem_titles/record_interaction` 均支持按学习者过滤；新增 `claim_legacy_records()`，首个建立身份的浏览器一次性认领历史（NULL）记录，之后为无操作。已用临时库做隔离/认领/先到先得功能测试通过。位置：`app.py:57`、`app.py:get_or_create_learner_id`、`learning_db.py`。
 - 【2026-07-05】提交、推送并发布新版 `v0.5.0`，包含检索错位修复和多用户学情隔离；README 徽章与应用页脚版本同步为 `v0.5.0`。
+- 【2026-07-05】UI 进化第一梯队：① 回答改流式输出（`stream_deepseek` + 打字机 `▌`，结尾隐藏学习标记用 `strip_marker_for_display` 实时截断不外泄）；② 回答上方展示检索来源卡片（`render_source_cards`，来源随消息存入 session_state，同会话内历史复渲染也带卡片）；③ 学情侧边栏文字标签→单色相水平条形 meter（`render_tag_bars`，练习=蓝 #2f6fed、覆盖=绿 #12b886）+ 已学进度条。全局样式经 `GLOBAL_CSS` 注入，配色遵循 dataviz 规范、明暗自适应；HTML 全部 `html.escape`。已做语法/标记逻辑/HTML 结构与转义测试；真机流式渲染需本地 API key，交由使用者验收。位置：`app.py`。
+- 【2026-07-05】README 展示面重写美化：新增 emoji 分区、亮点表补充流式/来源/可视化/多用户、加「版本历程」表（含各版本真实日期）、结构与文案整体打磨。
+- 【2026-07-05】提交、推送并发布新版 `v0.6.0`（UI 第一梯队 + README 美化）；README 徽章与应用页脚同步为 `v0.6.0`。
+- 【2026-07-05】重写 GitHub 历史 release 描述（v0.1.0–v0.5.0）为统一的美化版式，并在每条注明真实发布日期。注意：GitHub「Update release」API 不支持修改 `published_at`（实测 PATCH 被静默忽略），v0.1.0–v0.4.0 因早前批量重新发布，发布页相对时间被重置为今天且无法用 API 改回；真实时间以 release 描述内的日期与 git 提交时间为准。
 
 ---
 
@@ -68,10 +72,10 @@
 
 ## 正在做（当前任务）
 
-- 任务：无。`v0.5.0` 已完成检索错位修复和多用户学情隔离，等待/完成发布验证即可。
-- 进展到哪：`load_poem_data` 改为全部取自 Chroma；新增 `learner_id` 身份与按学习者过滤；版本号已同步为 `v0.5.0`。
-- 相关文件：`app.py`、`learning_db.py`、`README.md`、`PROGRESS.md`。
-- 卡点/待决定：无阻塞。UI 进化（流式输出、检索来源卡片、学情图表）已提出但尚未动手。`chromadb==1.5.9` 截至 2026-06-13 未查到更高修复版，只能先保留本地-only 红线并持续关注升级。
+- 任务：无。`v0.6.0` 已完成 UI 第一梯队（流式 / 来源卡片 / 学情可视化）与 README 美化并发布。
+- 进展到哪：UI 三项已实现并做逻辑/结构测试；README 重写；历史 release 描述已美化并补真实日期。
+- 相关文件：`app.py`、`README.md`、`PROGRESS.md`。
+- 卡点/待决定：真机流式渲染尚未在本环境跑过（需本地 API key），交由使用者验收；若 Streamlit 过滤了自定义 HTML class 导致样式不生效需回调微调。UI 第二梯队（整体主题化、标签 chips、古诗库浏览页）待安排。`chromadb==1.5.9` 截至 2026-06-13 未查到更高修复版，保留本地-only 红线并持续关注升级。
 
 ---
 
@@ -131,4 +135,5 @@
 - 不要把 Chroma 改成 HTTP server；当前只允许本地 `PersistentClient`。
 - 不要把 API key 或访问口令写入 `.bat`、`.env`、说明文档真实示例或任何会提交的文件。
 - 新增路径请放进 `config.py` 或环境变量，不要重新写本机绝对路径。
-- 当前仓库远端是 `https://github.com/dosheda/k12.git`，默认分支 `main`，已有 release `v0.1.0`、`v0.2.0`、`v0.3.0`、`v0.4.0`、`v0.4.1`，本次发布 `v0.5.0`（检索错位修复 + 多用户学情隔离）。
+- 当前仓库远端是 `https://github.com/dosheda/k12.git`，默认分支 `main`，已有 release `v0.1.0`~`v0.5.0`，本次发布 `v0.6.0`（UI 第一梯队 + README 美化）。
+- GitHub release 的 `published_at` 无法用 API 修改（实测被静默忽略）；历史 release 相对时间显示为今天属平台限制，真实日期以 release 描述与 git 提交时间为准，勿反复尝试用 API 改。
