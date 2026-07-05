@@ -69,6 +69,24 @@ JSON_COLUMNS = {
 CHAT_ROLES = {"user", "assistant"}
 MAX_CHAT_SESSION_ID_CHARS = 64
 MAX_CHAT_CONTENT_CHARS = 12000
+MAX_LEARNER_ID_CHARS = 64
+
+
+def _normalize_learner_id(learner_id) -> str | None:
+    """Normalize a learner id; None/invalid means 'no filter / legacy'."""
+    if learner_id is None:
+        return None
+    learner_id = str(learner_id).strip()
+    if not learner_id or len(learner_id) > MAX_LEARNER_ID_CHARS:
+        return None
+    return learner_id
+
+
+def _learner_filter(learner_id: str | None) -> tuple[str, tuple]:
+    """Return a (WHERE clause, params) pair; empty when no learner given."""
+    if learner_id:
+        return "WHERE learner_id = ?", (learner_id,)
+    return "", ()
 
 
 # ============================================================
@@ -123,6 +141,9 @@ def _ensure_columns(conn):
     for column, definition in JSON_COLUMNS.items():
         if column not in existing:
             conn.execute(f"ALTER TABLE learning_records ADD COLUMN {column} {definition}")
+    # learner_id 可为空：NULL 表示尚未归属（旧记录），首个浏览器会一次性认领
+    if "learner_id" not in existing:
+        conn.execute("ALTER TABLE learning_records ADD COLUMN learner_id TEXT")
 
 
 def _ensure_chat_tables(conn):
@@ -272,7 +293,7 @@ def get_chat_messages(session_id: str, limit: int = 10) -> list[dict]:
 # ============================================================
 # 记录一次学习行为
 # ============================================================
-def record_learning(question: str, poem_data: list):
+def record_learning(question: str, poem_data: list, learner_id: str | None = None):
     """
     写入一条学习记录。
 
@@ -282,6 +303,7 @@ def record_learning(question: str, poem_data: list):
                  格式：[{"title": "《静夜思》 李白", "tags": ["思乡", "月亮", "借景抒情"]}, ...]
                  其中 tags 是 list 而非字符串 —— 每首诗的标签独立保存，
                  这样统计时可以按诗计数，反映每个标签真正出现在多少首诗里。
+      learner_id: 学习者标识，用于多用户隔离；None 表示不归属（旧口径）。
     """
     record_interaction(
         question=question,
@@ -290,6 +312,7 @@ def record_learning(question: str, poem_data: list):
         mentioned_poems=[],
         candidate_poems=[],
         record_type="explained" if poem_data else "no_match",
+        learner_id=learner_id,
     )
 
 
@@ -300,6 +323,7 @@ def record_interaction(
     mentioned_poems: list,
     candidate_poems: list,
     record_type: str,
+    learner_id: str | None = None,
 ):
     """Write one long-term learning interaction record."""
     init_db()
@@ -316,8 +340,9 @@ def record_interaction(
             explained_poems,
             reviewed_poems,
             mentioned_poems,
-            candidate_poems
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            candidate_poems,
+            learner_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             question[:MAX_USER_QUERY_CHARS],
@@ -329,18 +354,43 @@ def record_interaction(
             _dump_poem_data(reviewed_poems),
             _dump_poem_data(mentioned_poems),
             _dump_poem_data(candidate_poems),
+            _normalize_learner_id(learner_id),
         ),
     )
     conn.commit()
     conn.close()
 
 
+def claim_legacy_records(learner_id: str | None) -> int:
+    """Assign all未归属（learner_id IS NULL）的旧记录给指定学习者，只影响一次。
+
+    首个建立 learner_id 的浏览器会认领全部历史记录；之后新学习者到来时
+    已无 NULL 记录，此调用为无操作，天然实现「先到先得」。
+    """
+    learner_id = _normalize_learner_id(learner_id)
+    if not learner_id:
+        return 0
+
+    init_db()
+    conn = _get_conn()
+    cursor = conn.execute(
+        "UPDATE learning_records SET learner_id = ? WHERE learner_id IS NULL",
+        (learner_id,),
+    )
+    conn.commit()
+    claimed = cursor.rowcount
+    conn.close()
+    return claimed
+
+
 # ============================================================
 # 获取统计概览
 # ============================================================
-def get_stats() -> dict:
+def get_stats(learner_id: str | None = None) -> dict:
     """
     从数据库里算出基础统计数据，供侧边栏显示。
+
+    learner_id 给定时只统计该学习者的记录；None 表示全量（旧口径）。
 
     v3 口径：
       - 总提问次数：所有成功记录。
@@ -362,16 +412,20 @@ def get_stats() -> dict:
         "all_poems": [str, …],           # 已学习诗名（排序去重）
       }
     """
+    learner_id = _normalize_learner_id(learner_id)
+    where, params = _learner_filter(learner_id)
+
     init_db()
     conn = _get_conn()
 
     # ---- 总提问次数 ----
     total_questions = conn.execute(
-        "SELECT COUNT(*) FROM learning_records"
+        f"SELECT COUNT(*) FROM learning_records {where}",
+        params,
     ).fetchone()[0]
 
     rows = conn.execute(
-        """
+        f"""
         SELECT
             poem_data,
             record_type,
@@ -380,7 +434,9 @@ def get_stats() -> dict:
             mentioned_poems,
             candidate_poems
         FROM learning_records
-        """
+        {where}
+        """,
+        params,
     ).fetchall()
 
     practice_tag_counts = {}
@@ -436,18 +492,18 @@ def get_stats() -> dict:
     }
 
 
-def get_learned_poem_titles() -> set:
+def get_learned_poem_titles(learner_id: str | None = None) -> set:
     """Return titles that have been truly explained or reviewed."""
-    stats = get_stats()
+    stats = get_stats(learner_id)
     return set(stats["all_poems"])
 
 
 # ============================================================
 # 获取全部学习记录（用于生成学情报告）
 # ============================================================
-def get_all_records() -> list:
+def get_all_records(learner_id: str | None = None) -> list:
     """
-    返回所有学习记录，按时间从早到晚排列。
+    返回学习记录，按时间从早到晚排列。learner_id 给定时只返回该学习者的记录。
     每条记录是一个 dict：
       {
         "question": str,
@@ -460,10 +516,13 @@ def get_all_records() -> list:
         "created_at": str,
       }
     """
+    learner_id = _normalize_learner_id(learner_id)
+    where, params = _learner_filter(learner_id)
+
     init_db()
     conn = _get_conn()
     rows = conn.execute(
-        """
+        f"""
         SELECT
             question,
             poem_data,
@@ -474,8 +533,10 @@ def get_all_records() -> list:
             candidate_poems,
             created_at
         FROM learning_records
+        {where}
         ORDER BY created_at
-        """
+        """,
+        params,
     ).fetchall()
     conn.close()
 

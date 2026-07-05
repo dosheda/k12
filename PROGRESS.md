@@ -35,6 +35,9 @@
 - 【2026-06-13】新增聊天正文持久化：`learning_records.db` 增加 `chat_messages` 表，浏览器通过随机会话 cookie 恢复最近 5 轮对话；“开始新对话”会新建会话，不删除学情统计。
 - 【2026-06-13】提交、推送并发布新版 `v0.4.0`，包含学情报告复看入口和聊天历史持久化。
 - 【2026-07-05】优化 GitHub 展示面：README 增加版本徽章、功能亮点表、两张网页效果截图和更清晰的项目描述；应用页脚版本更新为 `v0.4.1`。
+- 【2026-07-05】修复检索错位隐患：`app.py:load_poem_data` 改为完全从 Chroma 一次取 `ids/documents/metadatas`，同一条记录内部天然对齐，不再用外部 txt 的过滤下标去配 `collection.get()`（其顺序不保证），避免诗文配错标题/标签污染检索与学情；移除已无用的 `POEM_1_80_PATH` 导入。位置：`app.py:344`。
+- 【2026-07-05】学情统计支持多用户隔离：新增持久化 `learner_id` cookie（独立于聊天会话，max-age 1 年，「开始新对话」不清零学情）；`learning_records` 增加可空 `learner_id` 列，`get_stats/get_all_records/get_learned_poem_titles/record_interaction` 均支持按学习者过滤；新增 `claim_legacy_records()`，首个建立身份的浏览器一次性认领历史（NULL）记录，之后为无操作。已用临时库做隔离/认领/先到先得功能测试通过。位置：`app.py:57`、`app.py:get_or_create_learner_id`、`learning_db.py`。
+- 【2026-07-05】提交、推送并发布新版 `v0.5.0`，包含检索错位修复和多用户学情隔离；README 徽章与应用页脚版本同步为 `v0.5.0`。
 
 ---
 
@@ -65,10 +68,10 @@
 
 ## 正在做（当前任务）
 
-- 任务：无。`v0.4.1` 展示优化版已完成，等待/完成发布验证即可。
-- 进展到哪：README 已加入展示截图和更适合 GitHub 首页的项目说明；应用页脚版本已更新为 `v0.4.1`。
-- 相关文件：`README.md`、`app.py`、`docs/screenshots/`、`PROGRESS.md`。
-- 卡点/待决定：无阻塞。`chromadb==1.5.9` 截至 2026-06-13 未查到更高修复版，只能先保留本地-only 红线并持续关注升级。
+- 任务：无。`v0.5.0` 已完成检索错位修复和多用户学情隔离，等待/完成发布验证即可。
+- 进展到哪：`load_poem_data` 改为全部取自 Chroma；新增 `learner_id` 身份与按学习者过滤；版本号已同步为 `v0.5.0`。
+- 相关文件：`app.py`、`learning_db.py`、`README.md`、`PROGRESS.md`。
+- 卡点/待决定：无阻塞。UI 进化（流式输出、检索来源卡片、学情图表）已提出但尚未动手。`chromadb==1.5.9` 截至 2026-06-13 未查到更高修复版，只能先保留本地-only 红线并持续关注升级。
 
 ---
 
@@ -128,4 +131,4 @@
 - 不要把 Chroma 改成 HTTP server；当前只允许本地 `PersistentClient`。
 - 不要把 API key 或访问口令写入 `.bat`、`.env`、说明文档真实示例或任何会提交的文件。
 - 新增路径请放进 `config.py` 或环境变量，不要重新写本机绝对路径。
-- 当前仓库远端是 `https://github.com/dosheda/k12.git`，默认分支 `main`，已有 release `v0.1.0`、`v0.2.0`、`v0.3.0`、`v0.4.0`，本次发布 `v0.4.1` 展示优化版。
+- 当前仓库远端是 `https://github.com/dosheda/k12.git`，默认分支 `main`，已有 release `v0.1.0`、`v0.2.0`、`v0.3.0`、`v0.4.0`、`v0.4.1`，本次发布 `v0.5.0`（检索错位修复 + 多用户学情隔离）。

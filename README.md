@@ -2,7 +2,7 @@
 
 > 面向 K12 语文学习场景的本地优先古诗词 AI 助手：用 RAG 检索 80 首古诗词知识库，再让 DeepSeek 生成适合学生理解的讲解、赏析和学情报告。
 
-![Version](https://img.shields.io/badge/version-v0.4.1-2f6fed)
+![Version](https://img.shields.io/badge/version-v0.5.0-2f6fed)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab)
 ![Streamlit](https://img.shields.io/badge/UI-Streamlit-ff4b4b)
 ![RAG](https://img.shields.io/badge/RAG-ChromaDB%20%2B%20BGE-12b886)
