@@ -77,7 +77,7 @@ EXAMPLE_QUESTIONS = [
     "再讲一首",
     "它的作者是谁？",
 ]
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.7.1"
 
 
 # ============================================================
@@ -902,8 +902,18 @@ def generate_learning_report(learner_id: str | None = None) -> str:
 
 @st.dialog("学情分析报告", width="large")
 def render_learning_report_dialog():
-    """Show the generated learning report without moving the chat viewport."""
-    st.markdown(st.session_state.report_text)
+    """
+    展示学情报告。若标记了待生成，则直接在弹窗里生成：
+    这样点击后弹窗立刻出现，用户能清楚看到“正在生成”的动画，不再对着页面干等。
+    """
+    if st.session_state.get("_pending_report"):
+        st.info("📊 小K老师正在翻看这段时间的学习记录，认真写报告，请稍等十几秒…")
+        with st.spinner("正在生成学情报告…✍️"):
+            st.session_state.report_text = generate_learning_report(learner_id)
+        st.session_state._pending_report = False
+        st.rerun()  # 生成完立刻重绘，去掉提示、显示正文
+
+    st.markdown(st.session_state.get("report_text", ""))
     if st.button("关闭报告", use_container_width=True):
         st.session_state.show_report = False
         st.rerun()
@@ -1363,17 +1373,20 @@ with st.sidebar:
     if has_report:
         if st.button("📄 查看上次报告", use_container_width=True):
             st.session_state.show_report = True
+            st.session_state._show_library = False
             st.rerun()
 
         if st.button("🔄 重新生成学情报告", use_container_width=True):
-            # 设置 pending 标记，在下次页面刷新时生成报告
-            # （不能在 button 回调里直接做耗时操作，会阻塞 UI）
-            st.session_state.show_report = False
+            # 立刻打开弹窗并标记待生成，由弹窗内就地生成（带醒目动画，不再干等）
             st.session_state._pending_report = True
+            st.session_state.show_report = True
+            st.session_state._show_library = False
             st.rerun()
     else:
         if st.button("📊 生成学情报告", use_container_width=True):
             st.session_state._pending_report = True
+            st.session_state.show_report = True
+            st.session_state._show_library = False
             st.rerun()
 
     st.divider()
@@ -1396,21 +1409,11 @@ with st.sidebar:
 # ---------- 主区域标题：Hero 抬头 ----------
 st.markdown(HERO_HTML, unsafe_allow_html=True)
 
-# ============================================================
-# 处理待生成的学情报告（新增）
-# ============================================================
-# 点击侧边栏按钮会设置 _pending_report = True，
-# 然后在这次页面刷新中真正生成报告（避免阻塞按钮响应）
-if st.session_state.get("_pending_report"):
-    with st.spinner("小K老师正在分析学习数据，生成报告……📊"):
-        report_text = generate_learning_report(learner_id)
-        st.session_state.report_text = report_text
-        st.session_state.show_report = True
-        st.session_state._pending_report = False
-    st.rerun()
-
 # ---- 弹窗显示：学情报告 / 古诗库（一次只开一个）----
-if st.session_state.get("show_report") and st.session_state.get("report_text"):
+# 报告在弹窗内就地生成，因此待生成时也要打开弹窗（让用户看到生成动画）
+if st.session_state.get("show_report") and (
+    st.session_state.get("report_text") or st.session_state.get("_pending_report")
+):
     render_learning_report_dialog()
 elif st.session_state.get("_show_library"):
     render_poem_library_dialog()

@@ -44,6 +44,10 @@
 - 【2026-07-05】重写 GitHub 历史 release 描述（v0.1.0–v0.5.0）为统一的美化版式，并在每条注明真实发布日期。注意：GitHub「Update release」API 不支持修改 `published_at`（实测 PATCH 被静默忽略），v0.1.0–v0.4.0 因早前批量重新发布，发布页相对时间被重置为今天且无法用 API 改回；真实时间以 release 描述内的日期与 git 提交时间为准。
 - 【2026-07-05】UI 进化第二梯队 + 打磨：① 整体主题化（`.streamlit/config.toml` 暖色/品牌蓝/圆角）+ 顶部品牌 Hero 抬头 + 侧边栏页脚升级；② 古诗库浏览弹窗（`render_poem_library_dialog`，搜索+标签筛选+全文）；③ 来源卡片改为可点击按钮（点诗名 `open_library_for_poem` 跳古诗库看全文，卡片样式经 CSS 保留观感）；④ 欢迎空状态（`render_welcome`，无对话时大号可点击示例）；⑤「试试这些」示例改为可点击按钮（`_pending_query` 机制）+ 彩色 hover；⑥ TTS 按钮改鲜亮渐变胶囊、聊天头像换 👩‍🏫/🧒；⑦ 已学古诗>提问次数加注解；⑧ 流式首字等待加 spinner 过渡（修“看似卡死”）。位置：`app.py`、`.streamlit/config.toml`。
 - 【2026-07-05】提交、推送并发布新版 `v0.7.0`（UI 第二梯队 + 界面美化）；README 徽章、版本历程与应用页脚同步为 `v0.7.0`。
+- 【2026-07-05】v0.7.0 体验修复：① 取消发脏的暖色背景，`.streamlit/config.toml` 回到干净近白 `#fcfcfc`/`#f2f3f5`；② 学情报告改为「点击即弹窗 + 弹窗内就地生成」（`render_learning_report_dialog` 内带 `st.info`+spinner，生成完 rerun），不再对着主页面干等。位置：`app.py`、`.streamlit/config.toml`。
+- 【2026-07-05】更新 README 展示截图（`docs/screenshots/chat-overview.png`、`learning-sidebar.png` 换成当前 UI 实拍）。
+- 【2026-07-05】重写并美化 `使用手册.html`：内容补齐到 v0.7.1（流式、可点击来源卡片、古诗库浏览、多用户学情隔离、欢迎页、可点击示例、报告弹窗内生成），配色从棕红改为与 App/README 一致的品牌蓝绿，界面/功能/技术/FAQ 全面更新，页脚版本与日期更新为 v0.7.1 / 2026年7月。
+- 【2026-07-05】提交、推送并发布新版 `v0.7.1`（报告弹窗内生成 + 取消暖色 + 截图与手册更新）；README 徽章、版本历程与应用页脚同步为 `v0.7.1`。
 
 ---
 
@@ -137,5 +141,5 @@
 - 不要把 Chroma 改成 HTTP server；当前只允许本地 `PersistentClient`。
 - 不要把 API key 或访问口令写入 `.bat`、`.env`、说明文档真实示例或任何会提交的文件。
 - 新增路径请放进 `config.py` 或环境变量，不要重新写本机绝对路径。
-- 当前仓库远端是 `https://github.com/dosheda/k12.git`，默认分支 `main`，已有 release `v0.1.0`~`v0.6.0`，本次发布 `v0.7.0`（UI 第二梯队 + 界面美化）。
+- 当前仓库远端是 `https://github.com/dosheda/k12.git`，默认分支 `main`，已有 release `v0.1.0`~`v0.7.0`，本次发布 `v0.7.1`（报告弹窗内生成 + 取消暖色 + 截图/手册更新）。
 - GitHub release 的 `published_at` 无法用 API 修改（实测被静默忽略）；历史 release 相对时间显示为今天属平台限制，真实日期以 release 描述与 git 提交时间为准，勿反复尝试用 API 改。

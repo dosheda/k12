@@ -3,7 +3,7 @@
 > 一个**本地优先**的 K12 语文学习助手：像聊天一样提问，系统先用 RAG 从 80 首古诗词知识库检索相关诗歌，再让 DeepSeek 生成适合学生理解的分板块讲解，并持续沉淀学情、生成给家长看的学习报告。
 
 <p>
-<img src="https://img.shields.io/badge/version-v0.7.0-2f6fed" alt="Version">
+<img src="https://img.shields.io/badge/version-v0.7.1-2f6fed" alt="Version">
 <img src="https://img.shields.io/badge/Python-3.10%2B-3776ab" alt="Python">
 <img src="https://img.shields.io/badge/UI-Streamlit-ff4b4b" alt="Streamlit">
 <img src="https://img.shields.io/badge/RAG-ChromaDB%20%2B%20BGE-12b886" alt="RAG">
@@ -262,7 +262,8 @@ python k12_helper.py   # 错题讲解与 OCR（需本机安装 Tesseract）
 
 | 版本 | 日期 | 亮点 |
 |---|---|---|
-| **v0.7.0** | 2026-07-05 | 界面主题化（品牌 Hero 抬头、暖色调、圆角）、古诗库浏览页、来源卡片可点、欢迎空状态、可点击示例、朗读按钮与头像美化 |
+| **v0.7.1** | 2026-07-05 | 学情报告改为弹窗内就地生成（醒目动画，不再干等）、取消发脏的暖色背景、更新展示截图与使用手册 |
+| **v0.7.0** | 2026-07-05 | 界面主题化（品牌 Hero 抬头、圆角）、古诗库浏览页、来源卡片可点、欢迎空状态、可点击示例、朗读按钮与头像美化 |
 | **v0.6.0** | 2026-07-05 | 流式讲解（打字机）、检索来源卡片、学情侧边栏可视化（条形 meter + 进度条） |
 | **v0.5.0** | 2026-07-05 | 修复检索错位隐患；多用户学情隔离（`learner_id`），同一局域网各学生独立统计 |
 | **v0.4.1** | 2026-07-05 | GitHub 展示面优化：版本徽章、功能亮点表、效果截图 |

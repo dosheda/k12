@@ -2,8 +2,9 @@
 # 明暗主题下 Streamlit 会各自取色；这里定义浅色主题，深色由用户端切换。
 [theme]
 primaryColor = "#2f6fed"
-backgroundColor = "#faf6ee"
-secondaryBackgroundColor = "#f1ebdd"
+# 保持干净的近白背景（此前加深的暖色显脏，已取消）
+backgroundColor = "#fcfcfc"
+secondaryBackgroundColor = "#f2f3f5"
 textColor = "#1f2328"
 font = "sans serif"
 
